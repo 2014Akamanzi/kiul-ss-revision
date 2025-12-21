@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type Level = "CSEE" | "ACSEE";
-
 type ChatRole = "student" | "bot";
 
 type ChatMessage = {
@@ -29,9 +28,14 @@ type LoopState =
       expectedKeywords: string[];
       triesLeft: number;
       originalQuestion: string;
+      subject: string;
+      level: Level;
+      qType: QType;
     };
 
-const STORAGE_KEY = "kiul-ss-revision:chat:v2";
+type QType = "definition" | "calculation" | "explain" | "compare" | "essay" | "general";
+
+const STORAGE_KEY = "kiul-ss-revision:chat:v3";
 
 function uid() {
   return Math.random().toString(16).slice(2) + Date.now().toString(16);
@@ -48,74 +52,299 @@ function keywordMatchScore(answer: string, keywords: string[]) {
   return hits.length / Math.max(1, keywords.length);
 }
 
-function classifyQuestionType(q: string) {
+function classifyQuestionType(q: string): QType {
   const t = normalise(q);
-  if (t.startsWith("define") || t.includes("what is") || t.includes("meaning of")) return "definition";
-  if (t.includes("calculate") || t.includes("solve") || t.match(/\b\d+[\+\-\*\/]\d+\b/)) return "calculation";
-  if (t.includes("explain") || t.includes("discuss") || t.includes("describe")) return "explain";
-  if (t.includes("compare") || t.includes("difference") || t.includes("distinguish")) return "compare";
+
+  // essay-ish prompts
+  if (
+    t.includes("discuss") ||
+    t.includes("evaluate") ||
+    t.includes("assess") ||
+    t.includes("analyse") ||
+    t.includes("analyze") ||
+    t.includes("to what extent") ||
+    t.includes("write an essay")
+  ) {
+    return "essay";
+  }
+
+  if (t.startsWith("define") || t.includes("what is") || t.includes("meaning of") || t.includes("define the term")) {
+    return "definition";
+  }
+
+  if (
+    t.includes("calculate") ||
+    t.includes("solve") ||
+    t.includes("find the value") ||
+    t.includes("simplify") ||
+    t.includes("differentiate") ||
+    t.includes("integrate") ||
+    t.match(/\b\d+(\.\d+)?\s*[\+\-\*\/]\s*\d+(\.\d+)?\b/)
+  ) {
+    return "calculation";
+  }
+
+  if (t.includes("compare") || t.includes("difference") || t.includes("distinguish") || t.includes("differentiate between")) {
+    return "compare";
+  }
+
+  if (t.includes("explain") || t.includes("describe") || t.includes("outline") || t.includes("how") || t.includes("why")) {
+    return "explain";
+  }
+
   return "general";
 }
 
-function makeFollowUp(level: Level, subject: string, userQuestion: string) {
-  // Very simple follow-up generation rules (MVP), subject-aware only at a basic level.
+/**
+ * Subject-specific follow-up templates (MVP).
+ * We choose a follow-up question style + expected keywords used for basic evaluation.
+ */
+function makeFollowUp(level: Level, subjectRaw: string, userQuestion: string) {
+  const subject = normalise(subjectRaw);
   const qType = classifyQuestionType(userQuestion);
 
-  // Default
-  let followupQuestion = "In one or two sentences, restate the main idea in your own words.";
-  let expectedKeywords = ["main", "because"]; // very loose
+  const isACSEE = level === "ACSEE";
 
-  // Subject hints
-  const subj = normalise(subject);
+  const tighten = (q: string) => (isACSEE ? `${q} (Be precise and concise.)` : q);
 
-  if (qType === "definition") {
-    followupQuestion = "Give a one-sentence definition, and include one key term that must appear in the definition.";
-    expectedKeywords = ["is", "process"]; // loose but nudges structure
-  }
+  // Helpers: common keyword sets
+  const kw = {
+    point3: ["1", "2", "3"],
+    because: ["because"],
+    example: ["example"],
+    conclude: ["therefore"],
+    formulaUnits: ["formula", "units"],
+    steps: ["step", "first", "then"],
+    evidence: ["example", "because"],
+    compare: ["whereas", "however"],
+  };
 
-  if (qType === "compare") {
-    followupQuestion = "State TWO differences clearly (Difference 1…, Difference 2…).";
-    expectedKeywords = ["difference", "1", "2"];
-  }
+  // Default fallback (works for any subject)
+  let followupQuestion = tighten("In one or two sentences, restate the main idea in your own words.");
+  let expectedKeywords = ["because", "example"]; // loose
 
-  if (qType === "calculation") {
-    followupQuestion =
-      "Write the formula or method you would use first (even before calculating), and say why it applies.";
-    expectedKeywords = ["formula", "because"];
-  }
-
-  if (qType === "explain") {
-    followupQuestion = "Give one example that proves you understood the explanation.";
+  // ====== LANGUAGE SUBJECTS ======
+  const languageTemplate = () => {
+    if (qType === "definition") {
+      followupQuestion = tighten("Write the definition in ONE sentence, then give ONE example sentence using the term correctly.");
+      expectedKeywords = ["is", "example"];
+      return;
+    }
+    if (qType === "compare") {
+      followupQuestion = tighten("Give TWO differences, then write ONE short sentence to summarise the contrast.");
+      expectedKeywords = ["1", "2", "whereas"];
+      return;
+    }
+    if (qType === "essay") {
+      followupQuestion = tighten("Write a short outline: Introduction (1 sentence), THREE body points, Conclusion (1 sentence).");
+      expectedKeywords = ["introduction", "conclusion", "1", "2", "3"];
+      return;
+    }
+    followupQuestion = tighten("Answer in 3–5 sentences and include ONE supporting example.");
     expectedKeywords = ["example"];
+  };
+
+  // English-specific
+  const englishTemplate = () => {
+    if (qType === "essay") {
+      followupQuestion = tighten(
+        "Write an exam-style plan: Thesis (1 sentence), THREE paragraphs (Point + Evidence + Explanation), then a 1-sentence conclusion."
+      );
+      expectedKeywords = ["thesis", "evidence", "conclusion", "1", "2", "3"];
+      return;
+    }
+    followupQuestion = tighten("Give a clear answer, then add ONE example (or a brief quotation if applicable) and explain it in one line.");
+    expectedKeywords = ["example", "because"];
+  };
+
+  const kiswahiliTemplate = () => {
+    followupQuestion = tighten("Jibu kwa sentensi 3–5, kisha toa MFANO mmoja unaoonyesha umeelewa.");
+    expectedKeywords = ["mfano"];
+  };
+
+  // ====== MATHEMATICS ======
+  const mathTemplate = () => {
+    if (qType === "calculation") {
+      followupQuestion = tighten("State the method/formula first, then show the FIRST step clearly (before doing the full calculation).");
+      expectedKeywords = ["formula", "first"];
+      return;
+    }
+    if (qType === "definition") {
+      followupQuestion = tighten("Define the term and then give ONE simple example or representation.");
+      expectedKeywords = ["is", "example"];
+      return;
+    }
+    followupQuestion = tighten("Write the key rule you will use and explain WHY it applies in this case.");
+    expectedKeywords = ["because", "rule"];
+  };
+
+  const basicMathTemplate = () => {
+    followupQuestion = tighten("Write the correct formula/rule, then show ONE worked step.");
+    expectedKeywords = ["formula", "step"];
+  };
+
+  // ====== SCIENCES ======
+  const biologyTemplate = () => {
+    if (qType === "definition") {
+      followupQuestion = tighten("Give a one-sentence definition and mention TWO key terms that must appear in the definition.");
+      expectedKeywords = ["is", "movement", "process"];
+      return;
+    }
+    if (qType === "explain") {
+      followupQuestion = tighten("List the steps of the process (Step 1, Step 2, Step 3) and give ONE example.");
+      expectedKeywords = ["step", "1", "2", "3", "example"];
+      return;
+    }
+    if (qType === "compare") {
+      followupQuestion = tighten("Give TWO differences and ONE similarity.");
+      expectedKeywords = ["difference", "similarity", "whereas"];
+      return;
+    }
+    followupQuestion = tighten("State ONE key idea, ONE cause, and ONE effect, then give an example.");
+    expectedKeywords = ["cause", "effect", "example"];
+  };
+
+  const chemistryTemplate = () => {
+    if (qType === "calculation") {
+      followupQuestion = tighten("Write the formula, include UNITS, then show the FIRST substitution step.");
+      expectedKeywords = ["formula", "units", "first"];
+      return;
+    }
+    if (qType === "definition") {
+      followupQuestion = tighten("Define the term and give ONE example from common laboratory or daily life.");
+      expectedKeywords = ["is", "example"];
+      return;
+    }
+    followupQuestion = tighten("State the principle/law involved and give ONE example or equation.");
+    expectedKeywords = ["law", "equation", "example"];
+  };
+
+  const physicsTemplate = () => {
+    if (qType === "calculation") {
+      followupQuestion = tighten("State the formula, list the known values with UNITS, then show the FIRST substitution.");
+      expectedKeywords = ["formula", "units", "first"];
+      return;
+    }
+    if (qType === "definition") {
+      followupQuestion = tighten("Define the term and state ONE SI unit related to it (if applicable).");
+      expectedKeywords = ["is", "unit"];
+      return;
+    }
+    followupQuestion = tighten("Explain the concept briefly, then give ONE example and mention any unit(s) if relevant.");
+    expectedKeywords = ["example", "unit"];
+  };
+
+  // ====== SOCIAL SCIENCES ======
+  const historyTemplate = () => {
+    if (qType === "essay") {
+      followupQuestion = tighten("Write an outline: Intro (context), THREE causes/points with brief evidence, then a conclusion line.");
+      expectedKeywords = ["context", "evidence", "conclusion", "1", "2", "3"];
+      return;
+    }
+    if (qType === "compare") {
+      followupQuestion = tighten("Give TWO differences and support each with ONE historical example (event/person/place).");
+      expectedKeywords = ["1", "2", "example"];
+      return;
+    }
+    followupQuestion = tighten("Give THREE points and for each point add ONE supporting detail (date/person/place if possible).");
+    expectedKeywords = ["1", "2", "3"];
+  };
+
+  const geographyTemplate = () => {
+    if (qType === "essay") {
+      followupQuestion = tighten("Plan your answer: Intro, THREE factors (with examples), impacts, and a short conclusion.");
+      expectedKeywords = ["factors", "example", "impacts", "conclusion", "1", "2", "3"];
+      return;
+    }
+    followupQuestion = tighten("Give THREE points and include ONE real example/location/case for at least one point.");
+    expectedKeywords = ["1", "2", "3", "example"];
+  };
+
+  const civicsTemplate = () => {
+    if (qType === "essay") {
+      followupQuestion = tighten("Outline: define the key concept, THREE arguments with examples, then conclude with one sentence.");
+      expectedKeywords = ["define", "example", "conclude", "1", "2", "3"];
+      return;
+    }
+    followupQuestion = tighten("Give THREE points and for each point provide ONE example from society/government.");
+    expectedKeywords = ["1", "2", "3", "example"];
+  };
+
+  // ====== BUSINESS SUBJECTS ======
+  const commerceTemplate = () => {
+    if (qType === "calculation") {
+      followupQuestion = tighten("State the formula, show ONE step, then explain what the result means in business terms.");
+      expectedKeywords = ["formula", "step", "means"];
+      return;
+    }
+    followupQuestion = tighten("Define the concept and give ONE practical business example, then state ONE advantage or importance.");
+    expectedKeywords = ["example", "advantage"];
+  };
+
+  const bookkeepingTemplate = () => {
+    if (qType === "calculation") {
+      followupQuestion = tighten("Write the correct entry/format and show the FIRST posting step (Dr/Cr), then explain briefly.");
+      expectedKeywords = ["dr", "cr", "first"];
+      return;
+    }
+    followupQuestion = tighten("State the correct accounting principle and give ONE example of a journal entry (Dr/Cr).");
+    expectedKeywords = ["dr", "cr", "principle"];
+  };
+
+  const computerStudiesTemplate = () => {
+    if (qType === "definition") {
+      followupQuestion = tighten("Define the term and give ONE example (device/software/process).");
+      expectedKeywords = ["is", "example"];
+      return;
+    }
+    if (qType === "compare") {
+      followupQuestion = tighten("Give TWO differences and ONE use-case example.");
+      expectedKeywords = ["1", "2", "example"];
+      return;
+    }
+    followupQuestion = tighten("Explain briefly, then list THREE key features/steps.");
+    expectedKeywords = ["1", "2", "3"];
+  };
+
+  // ========= Dispatch by subject =========
+  const subjectKey = subject;
+
+  if (subjectKey === "english") {
+    englishTemplate();
+  } else if (subjectKey === "kiswahili") {
+    kiswahiliTemplate();
+  } else if (["french", "arabic"].includes(subjectKey)) {
+    languageTemplate();
+  } else if (subjectKey === "mathematics") {
+    mathTemplate();
+  } else if (subjectKey === "basic mathematics") {
+    basicMathTemplate();
+  } else if (subjectKey === "biology") {
+    biologyTemplate();
+  } else if (subjectKey === "chemistry") {
+    chemistryTemplate();
+  } else if (subjectKey === "physics") {
+    physicsTemplate();
+  } else if (subjectKey === "history") {
+    historyTemplate();
+  } else if (subjectKey === "geography") {
+    geographyTemplate();
+  } else if (subjectKey === "civics") {
+    civicsTemplate();
+  } else if (subjectKey === "commerce") {
+    commerceTemplate();
+  } else if (subjectKey === "bookkeeping") {
+    bookkeepingTemplate();
+  } else if (subjectKey === "computer studies") {
+    computerStudiesTemplate();
+  } else {
+    // anything else: fallback
   }
 
-  // Slight tightening for sciences
-  if (["biology", "chemistry", "physics"].includes(subj)) {
-    if (qType === "definition") expectedKeywords = ["is", "movement", "process"];
-    if (qType === "calculation") expectedKeywords = ["formula", "units"];
-    if (qType === "explain") expectedKeywords = ["example", "because"];
-  }
+  // Light sanity: avoid too-short keyword sets
+  if (expectedKeywords.length < 2) expectedKeywords = expectedKeywords.concat(kw.example);
 
-  // Slight tightening for civics/history/geography
-  if (["civics", "history", "geography"].includes(subj)) {
-    if (qType === "definition") expectedKeywords = ["is", "means"];
-    if (qType === "compare") expectedKeywords = ["difference", "whereas"];
-    if (qType === "explain") expectedKeywords = ["example", "because"];
-  }
-
-  // Math
-  if (subj.includes("mathematics")) {
-    if (qType === "calculation") expectedKeywords = ["formula", "because"];
-    if (qType === "definition") expectedKeywords = ["is", "means"];
-  }
-
-  // Level hint (very light)
-  if (level === "ACSEE") {
-    // Encourage more precision
-    followupQuestion += " (Try to be precise and concise.)";
-  }
-
-  return { followupQuestion, expectedKeywords };
+  return { followupQuestion, expectedKeywords, qType };
 }
 
 export default function ChatPage() {
@@ -222,23 +451,22 @@ export default function ChatPage() {
   }
 
   function botExplainAndMaybeFollowUp(userText: string) {
-    // Prototype explanation (no AI yet) — structured, exam-oriented
     const explanation =
       `Prototype explanation (AI will be connected later).\n\n` +
       `Level: ${settings.level}\n` +
       `Subject: ${settings.subject}\n\n` +
-      `How to approach this in exams:\n` +
-      `1) Identify what the question is asking.\n` +
-      `2) Recall the key concept / rule.\n` +
-      `3) Apply it step by step.\n` +
-      `4) Present the answer clearly (and with units/points where relevant).\n\n` +
+      `Exam approach:\n` +
+      `1) Identify what the question asks.\n` +
+      `2) Recall the key concept/rule.\n` +
+      `3) Apply step by step.\n` +
+      `4) Present clearly (points, units, examples).\n\n` +
       `Your question:\n"${userText}"`;
 
     addMessage("bot", explanation);
 
     if (!settings.studyLoop) return;
 
-    const { followupQuestion, expectedKeywords } = makeFollowUp(
+    const { followupQuestion, expectedKeywords, qType } = makeFollowUp(
       settings.level,
       settings.subject,
       userText
@@ -250,29 +478,28 @@ export default function ChatPage() {
       status: "awaiting_followup_answer",
       followupQuestion,
       expectedKeywords,
-      triesLeft: 1, // one retry (total 2 attempts)
+      triesLeft: 1, // one retry (2 total attempts)
       originalQuestion: userText,
+      subject: settings.subject,
+      level: settings.level,
+      qType,
     });
   }
 
   function evaluateFollowUpAnswer(answer: string, state: Extract<LoopState, { status: "awaiting_followup_answer" }>) {
     const score = keywordMatchScore(answer, state.expectedKeywords);
 
-    // Simple thresholds
     const verdict =
       score >= 0.67 ? "Correct" : score >= 0.34 ? "Partly correct" : "Incorrect";
 
     const guidance =
       verdict === "Correct"
-        ? "Good. You captured the key idea. Now you can proceed to the next question."
+        ? "Good. You included the key elements. Move on to the next question."
         : verdict === "Partly correct"
-        ? "You are close. Add missing key terms and make your statement more precise."
-        : "Not yet. Re-read the question and include the key terms that define the idea.";
+        ? `You are close. Add missing key terms and match the expected exam structure for ${state.subject}.`
+        : `Not yet. Use the structure expected in ${state.subject}, and include key terms clearly.`;
 
-    addMessage(
-      "bot",
-      `${verdict}.\n\nFeedback:\n${guidance}`
-    );
+    addMessage("bot", `${verdict}.\n\nFeedback:\n${guidance}`);
 
     if (verdict === "Correct") {
       setLoopState({ status: "idle" });
@@ -280,23 +507,16 @@ export default function ChatPage() {
     }
 
     if (state.triesLeft > 0) {
-      addMessage(
-        "bot",
-        `Try again (one more attempt):\n${state.followupQuestion}`
-      );
-      setLoopState({
-        ...state,
-        triesLeft: state.triesLeft - 1,
-      });
+      addMessage("bot", `Try again (one more attempt):\n${state.followupQuestion}`);
+      setLoopState({ ...state, triesLeft: state.triesLeft - 1 });
       return;
     }
 
-    // No tries left — give a gentle model outline (still prototype)
     addMessage(
       "bot",
-      `Model outline (prototype):\n- Use one clear sentence.\n- Include key terms: ${state.expectedKeywords.join(
+      `Model outline (prototype):\n- Use the expected structure for ${state.subject}.\n- Include key terms: ${state.expectedKeywords.join(
         ", "
-      )}\n- Add one brief example if relevant.`
+      )}\n- Keep it clear and exam-style.`
     );
     setLoopState({ status: "idle" });
   }
@@ -314,13 +534,11 @@ export default function ChatPage() {
     setDraft("");
     clearAttachment();
 
-    // If we are in Study Loop awaiting an answer, evaluate it.
     if (loopState.status === "awaiting_followup_answer") {
       evaluateFollowUpAnswer(userContent, loopState);
       return;
     }
 
-    // Otherwise: answer + follow-up
     botExplainAndMaybeFollowUp(hasText ? text : "Image uploaded (question).");
   }
 
@@ -402,7 +620,7 @@ export default function ChatPage() {
               </div>
 
               <p className="text-xs text-slate-500">
-                Study Loop asks a follow-up and checks your reply.
+                Study Loop uses subject-specific exam follow-ups.
               </p>
             </div>
           </div>
@@ -418,7 +636,9 @@ export default function ChatPage() {
                 {messages.map((m) => (
                   <div
                     key={m.id}
-                    className={`flex ${m.role === "student" ? "justify-end" : "justify-start"}`}
+                    className={`flex ${
+                      m.role === "student" ? "justify-end" : "justify-start"
+                    }`}
                   >
                     <div
                       className={[
@@ -437,7 +657,9 @@ export default function ChatPage() {
                           />
                         </div>
                       ) : null}
-                      <p className="whitespace-pre-wrap text-sm leading-relaxed">{m.content}</p>
+                      <p className="whitespace-pre-wrap text-sm leading-relaxed">
+                        {m.content}
+                      </p>
                     </div>
                   </div>
                 ))}
