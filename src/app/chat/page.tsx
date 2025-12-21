@@ -22,12 +22,27 @@ type Settings = {
 
 type QType = "definition" | "calculation" | "explain" | "compare" | "essay" | "general";
 
-/**
- * Smarter evaluation uses keyword GROUPS:
- * - Each group is a set of acceptable alternatives.
- * - If any keyword in the group appears, that group is "satisfied".
- */
+/** Keyword GROUPS: any term in a group satisfies that group. */
 type KeywordGroup = string[];
+
+type TopicId =
+  | "osmosis"
+  | "diffusion"
+  | "photosynthesis"
+  | "respiration"
+  | "cell_division"
+  | "genetics"
+  | "motion_speed_velocity"
+  | "newton_laws"
+  | "electricity"
+  | "acids_bases"
+  | "moles_stoichiometry"
+  | "periodic_table"
+  | "supply_demand"
+  | "accounting_drcr"
+  | "computer_networks"
+  | "computer_databases"
+  | "general";
 
 type LoopState =
   | { status: "idle" }
@@ -40,9 +55,10 @@ type LoopState =
       subject: string;
       level: Level;
       qType: QType;
+      topic: TopicId;
     };
 
-const STORAGE_KEY = "kiul-ss-revision:chat:v4";
+const STORAGE_KEY = "kiul-ss-revision:chat:v5";
 
 function uid() {
   return Math.random().toString(16).slice(2) + Date.now().toString(16);
@@ -113,18 +129,237 @@ function classifyQuestionType(q: string): QType {
 }
 
 /**
- * Subject keyword banks (MVP).
- * These are generic “must-include” concepts for exam-style answers.
- * They are not topic-perfect (no AI yet), but they raise quality a lot.
+ * Tiny topic detector (MVP):
+ * - Uses simple keyword matching on the ORIGINAL question.
+ * - Returns a TopicId which unlocks a stronger keyword bank.
+ */
+function detectTopic(subjectRaw: string, q: string): TopicId {
+  const subject = normalise(subjectRaw);
+  const t = normalise(q);
+
+  // Biology
+  if (subject === "biology") {
+    if (t.includes("osmosis")) return "osmosis";
+    if (t.includes("diffusion")) return "diffusion";
+    if (t.includes("photosynthesis")) return "photosynthesis";
+    if (t.includes("respiration")) return "respiration";
+    if (t.includes("mitosis") || t.includes("meiosis") || t.includes("cell division")) return "cell_division";
+    if (t.includes("genetics") || t.includes("inheritance") || t.includes("dna") || t.includes("allele") || t.includes("genotype")) return "genetics";
+    return "general";
+  }
+
+  // Physics
+  if (subject === "physics") {
+    if (t.includes("velocity") || t.includes("speed") || t.includes("acceleration") || t.includes("distance") || t.includes("time")) {
+      return "motion_speed_velocity";
+    }
+    if (t.includes("newton") || t.includes("force") || t.includes("mass") || t.includes("inertia")) return "newton_laws";
+    if (
+      t.includes("current") ||
+      t.includes("voltage") ||
+      t.includes("potential difference") ||
+      t.includes("resistance") ||
+      t.includes("ohm") ||
+      t.includes("circuit")
+    ) {
+      return "electricity";
+    }
+    return "general";
+  }
+
+  // Chemistry
+  if (subject === "chemistry") {
+    if (t.includes("acid") || t.includes("base") || t.includes("alkali") || t.includes("ph")) return "acids_bases";
+    if (t.includes("mole") || t.includes("molar") || t.includes("stoichiometry") || t.includes("molar mass")) return "moles_stoichiometry";
+    if (t.includes("periodic") || t.includes("group") || t.includes("period") || t.includes("element")) return "periodic_table";
+    return "general";
+  }
+
+  // Commerce
+  if (subject === "commerce") {
+    if (t.includes("demand") || t.includes("supply") || t.includes("price") || t.includes("market")) return "supply_demand";
+    return "general";
+  }
+
+  // Bookkeeping
+  if (subject === "bookkeeping") {
+    if (t.includes("debit") || t.includes("credit") || t.includes("dr") || t.includes("cr") || t.includes("journal") || t.includes("ledger")) {
+      return "accounting_drcr";
+    }
+    return "general";
+  }
+
+  // Computer Studies
+  if (subject === "computer studies") {
+    if (t.includes("network") || t.includes("lan") || t.includes("wan") || t.includes("internet") || t.includes("router")) return "computer_networks";
+    if (t.includes("database") || t.includes("dbms") || t.includes("table") || t.includes("sql")) return "computer_databases";
+    return "general";
+  }
+
+  return "general";
+}
+
+/**
+ * Topic keyword bank:
+ * - Adds strong topic anchors for evaluation.
+ * - Each entry is groups of acceptable alternatives.
+ * - Keep short (MVP): 4–8 groups max.
+ */
+function topicKeywordBank(topic: TopicId): KeywordGroup[] {
+  switch (topic) {
+    case "osmosis":
+      return [
+        ["water"],
+        ["movement", "diffusion"],
+        ["membrane", "semi-permeable", "selectively permeable"],
+        ["concentration", "gradient", "from high to low", "from dilute to concentrated"],
+      ];
+
+    case "diffusion":
+      return [
+        ["movement"],
+        ["particles", "molecules"],
+        ["high concentration", "low concentration", "concentration gradient"],
+        ["random", "passive"],
+      ];
+
+    case "photosynthesis":
+      return [
+        ["chlorophyll"],
+        ["light", "sunlight"],
+        ["carbon dioxide", "co2"],
+        ["water", "h2o"],
+        ["glucose", "carbohydrate"],
+        ["oxygen", "o2"],
+      ];
+
+    case "respiration":
+      return [
+        ["glucose"],
+        ["oxygen", "aerobic"],
+        ["energy", "atp"],
+        ["carbon dioxide"],
+        ["water"],
+      ];
+
+    case "cell_division":
+      return [
+        ["mitosis", "meiosis"],
+        ["chromosome"],
+        ["nucleus", "nuclear"],
+        ["stages", "prophase", "metaphase", "anaphase", "telophase"],
+      ];
+
+    case "genetics":
+      return [
+        ["dna", "gene"],
+        ["allele"],
+        ["genotype"],
+        ["phenotype"],
+        ["dominant", "recessive"],
+      ];
+
+    case "motion_speed_velocity":
+      return [
+        ["speed", "velocity"],
+        ["distance", "displacement"],
+        ["time"],
+        ["formula", "v=d/t", "speed = distance/time"],
+        ["units", "m/s", "km/h"],
+      ];
+
+    case "newton_laws":
+      return [
+        ["force"],
+        ["mass"],
+        ["acceleration"],
+        ["newton", "law"],
+        ["formula", "f=ma"],
+      ];
+
+    case "electricity":
+      return [
+        ["current", "i"],
+        ["voltage", "potential difference", "v"],
+        ["resistance", "r"],
+        ["ohm", "ohm's law"],
+        ["formula", "v=ir"],
+        ["units", "ampere", "volt", "ohm"],
+      ];
+
+    case "acids_bases":
+      return [
+        ["acid", "base", "alkali"],
+        ["ph"],
+        ["indicator", "litmus"],
+        ["hydrogen ions", "h+", "hydroxide ions", "oh-"],
+      ];
+
+    case "moles_stoichiometry":
+      return [
+        ["mole"],
+        ["molar mass"],
+        ["avogadro"],
+        ["formula", "n=m/mr", "n=m/mm"],
+        ["units", "mol", "g/mol"],
+      ];
+
+    case "periodic_table":
+      return [
+        ["group", "period"],
+        ["atomic number"],
+        ["valence", "outer electrons"],
+        ["trend", "reactivity", "electronegativity"],
+      ];
+
+    case "supply_demand":
+      return [
+        ["demand"],
+        ["supply"],
+        ["price"],
+        ["market"],
+        ["increase", "decrease"],
+      ];
+
+    case "accounting_drcr":
+      return [
+        ["debit", "dr"],
+        ["credit", "cr"],
+        ["journal", "ledger"],
+        ["entry", "posting"],
+      ];
+
+    case "computer_networks":
+      return [
+        ["network"],
+        ["lan", "wan"],
+        ["router", "switch"],
+        ["internet"],
+        ["protocol", "ip", "tcp"],
+      ];
+
+    case "computer_databases":
+      return [
+        ["database", "dbms"],
+        ["table", "record", "field"],
+        ["sql"],
+        ["primary key"],
+      ];
+
+    default:
+      return [];
+  }
+}
+
+/**
+ * Subject keyword bank (general, not topic-specific).
+ * This remains as a backup if no topic is detected.
  */
 function subjectKeywordBank(subjectRaw: string, qType: QType): KeywordGroup[] {
   const subject = normalise(subjectRaw);
 
-  const common: KeywordGroup[] = [
-    ["example", "for example", "e.g."],
-  ];
+  const common: KeywordGroup[] = [["example", "for example", "e.g."]];
 
-  // LANGUAGE
   if (["english", "french", "arabic"].includes(subject)) {
     if (qType === "essay") return [...common, ["introduction", "intro"], ["conclusion", "conclude"], ["because", "therefore"]];
     if (qType === "compare") return [...common, ["whereas", "however", "on the other hand"], ["difference", "different"]];
@@ -132,65 +367,39 @@ function subjectKeywordBank(subjectRaw: string, qType: QType): KeywordGroup[] {
   }
 
   if (subject === "kiswahili") {
-    // simple Swahili anchors
     return [
       ["mfano", "kwa mfano"],
       ["kwa sababu", "hivyo", "kwa hiyo"],
     ];
   }
 
-  // MATH
   if (subject === "basic mathematics" || subject === "mathematics") {
     if (qType === "calculation") return [...common, ["formula", "method"], ["step", "first"], ["answer", "="]];
     if (qType === "definition") return [...common, ["is", "means"]];
     return [...common, ["rule", "because"]];
   }
 
-  // BIOLOGY
   if (subject === "biology") {
     if (qType === "definition") {
       return [
         ["process", "movement"],
-        ["water", "molecule", "substance"],
         ["membrane", "selectively permeable", "semi-permeable"],
         ["concentration", "gradient", "from high to low"],
       ];
     }
-    if (qType === "explain") {
-      return [
-        ["process", "steps", "stage"],
-        ["because", "therefore"],
-        ["example", "for example"],
-      ];
-    }
-    if (qType === "compare") {
-      return [
-        ["whereas", "however"],
-        ["similarity", "both"],
-        ["difference", "different"],
-      ];
-    }
     return [
-      ["process", "movement"],
-      ["cause", "because"],
-      ["effect", "therefore"],
+      ["process", "steps", "stage"],
+      ["because", "therefore"],
       ["example", "for example"],
     ];
   }
 
-  // CHEMISTRY
   if (subject === "chemistry") {
     if (qType === "calculation") {
       return [
         ["formula", "equation"],
         ["units", "unit"],
         ["substitute", "substitution", "put in values"],
-      ];
-    }
-    if (qType === "definition") {
-      return [
-        ["is", "means"],
-        ["example", "for example"],
       ];
     }
     return [
@@ -200,19 +409,12 @@ function subjectKeywordBank(subjectRaw: string, qType: QType): KeywordGroup[] {
     ];
   }
 
-  // PHYSICS
   if (subject === "physics") {
     if (qType === "calculation") {
       return [
         ["formula", "equation"],
         ["units", "unit"],
         ["substitute", "substitution", "put in values"],
-      ];
-    }
-    if (qType === "definition") {
-      return [
-        ["is", "means"],
-        ["unit", "units"],
       ];
     }
     return [
@@ -222,16 +424,7 @@ function subjectKeywordBank(subjectRaw: string, qType: QType): KeywordGroup[] {
     ];
   }
 
-  // SOCIAL SCIENCES
   if (subject === "history") {
-    if (qType === "essay") {
-      return [
-        ["context", "background"],
-        ["cause", "reason"],
-        ["evidence", "example", "for example"],
-        ["conclusion", "conclude"],
-      ];
-    }
     return [
       ["cause", "reason"],
       ["example", "for example", "evidence"],
@@ -255,7 +448,6 @@ function subjectKeywordBank(subjectRaw: string, qType: QType): KeywordGroup[] {
     ];
   }
 
-  // BUSINESS
   if (subject === "commerce") {
     return [
       ["example", "for example"],
@@ -280,15 +472,13 @@ function subjectKeywordBank(subjectRaw: string, qType: QType): KeywordGroup[] {
     ];
   }
 
-  // default fallback
   return common;
 }
 
 /**
- * Subject-specific follow-up prompts + expected keyword GROUPS.
- * We merge:
- * - prompt template groups (structure)
- * - subject keyword bank groups (subject concepts)
+ * Follow-up question + expected keyword groups:
+ * - We combine: prompt structure groups + (topic bank if detected) + subject bank.
+ * - Cap groups so it stays passable.
  */
 function makeFollowUp(level: Level, subjectRaw: string, userQuestion: string) {
   const subject = normalise(subjectRaw);
@@ -296,167 +486,39 @@ function makeFollowUp(level: Level, subjectRaw: string, userQuestion: string) {
   const isACSEE = level === "ACSEE";
   const tighten = (q: string) => (isACSEE ? `${q} (Be precise and concise.)` : q);
 
-  let followupQuestion = tighten("In one or two sentences, restate the main idea in your own words.");
-  let structureGroups: KeywordGroup[] = [
-    ["because", "therefore"],
-    ["example", "for example"],
-  ];
+  const topic = detectTopic(subjectRaw, userQuestion);
 
-  // SUBJECT TEMPLATES (prompts)
-  if (subject === "english") {
-    if (qType === "essay") {
-      followupQuestion = tighten(
-        "Write an exam-style plan: Thesis (1 sentence), THREE body points (Point + Evidence + Explanation), then a 1-sentence conclusion."
-      );
-      structureGroups = [
-        ["thesis"],
-        ["evidence", "example", "for example"],
-        ["conclusion", "conclude"],
-        ["1", "2", "3"],
-      ];
-    } else {
-      followupQuestion = tighten(
-        "Give a clear answer, then add ONE example (or a brief quotation if applicable) and explain it in one line."
-      );
-      structureGroups = [
-        ["example", "for example", "e.g."],
-        ["because", "therefore"],
-      ];
-    }
-  } else if (subject === "kiswahili") {
-    followupQuestion = tighten("Jibu kwa sentensi 3–5, kisha toa MFANO mmoja unaoonyesha umeelewa.");
-    structureGroups = [
-      ["mfano", "kwa mfano"],
-      ["kwa sababu", "hivyo", "kwa hiyo"],
-    ];
-  } else if (["french", "arabic"].includes(subject)) {
-    followupQuestion = tighten("Answer in 3–5 sentences and include ONE supporting example.");
-    structureGroups = [
-      ["example", "for example", "e.g."],
-      ["because", "therefore"],
-    ];
-  } else if (subject === "basic mathematics") {
-    followupQuestion = tighten("Write the correct formula/rule, then show ONE worked step.");
-    structureGroups = [
-      ["formula", "method", "rule"],
-      ["step", "first"],
-    ];
-  } else if (subject === "mathematics") {
-    if (qType === "calculation") {
-      followupQuestion = tighten("State the method/formula first, then show the FIRST step clearly (before doing the full calculation).");
-      structureGroups = [
-        ["formula", "method"],
-        ["first", "step"],
-      ];
-    } else {
-      followupQuestion = tighten("Write the key rule you will use and explain WHY it applies in this case.");
-      structureGroups = [
-        ["rule", "formula", "method"],
-        ["because", "therefore"],
-      ];
-    }
-  } else if (subject === "biology") {
-    if (qType === "compare") {
-      followupQuestion = tighten("Give TWO differences and ONE similarity.");
-      structureGroups = [
-        ["difference", "different"],
-        ["similarity", "both"],
-        ["whereas", "however"],
-      ];
+  let followupQuestion = tighten("In one or two sentences, restate the main idea in your own words.");
+  let structureGroups: KeywordGroup[] = [["because", "therefore"], ["example", "for example"]];
+
+  // Prompts (short)
+  if (subject === "biology") {
+    if (topic === "photosynthesis") {
+      followupQuestion = tighten("Write the word equation for photosynthesis and state TWO conditions required.");
+      structureGroups = [["equation", "->", "plus"], ["conditions", "light", "chlorophyll"]];
+    } else if (topic === "osmosis") {
+      followupQuestion = tighten("Define osmosis and mention the role of a semi-permeable membrane.");
+      structureGroups = [["define", "is", "means"], ["membrane", "semi-permeable"]];
     } else if (qType === "explain") {
       followupQuestion = tighten("List the steps (Step 1, Step 2, Step 3) and give ONE example.");
-      structureGroups = [
-        ["step", "1"],
-        ["step", "2"],
-        ["step", "3"],
-        ["example", "for example"],
-      ];
-    } else {
-      followupQuestion = tighten("Give a one-sentence definition and include key terms.");
-      structureGroups = [
-        ["is", "means"],
-        ["process", "movement"],
-      ];
+      structureGroups = [["step", "1"], ["step", "2"], ["step", "3"], ["example", "for example"]];
     }
-  } else if (subject === "chemistry") {
-    if (qType === "calculation") {
-      followupQuestion = tighten("Write the formula/equation, include UNITS, then show the FIRST substitution step.");
-      structureGroups = [
-        ["formula", "equation"],
-        ["units", "unit"],
-        ["first", "substitute", "substitution"],
-      ];
-    } else {
-      followupQuestion = tighten("State the principle/law involved and give ONE example or equation.");
-      structureGroups = [
-        ["law", "principle"],
-        ["equation", "reaction"],
-        ["example", "for example"],
-      ];
-    }
-  } else if (subject === "physics") {
-    if (qType === "calculation") {
-      followupQuestion = tighten("State the formula, list known values with UNITS, then show the FIRST substitution.");
-      structureGroups = [
-        ["formula", "equation"],
-        ["units", "unit"],
-        ["first", "substitute", "substitution"],
-      ];
-    } else {
-      followupQuestion = tighten("Explain briefly, then give ONE example and mention any unit(s) if relevant.");
-      structureGroups = [
-        ["example", "for example"],
-        ["unit", "units"],
-        ["because", "therefore"],
-      ];
-    }
-  } else if (subject === "history") {
-    followupQuestion = tighten("Give THREE points and for each point add ONE supporting detail (date/person/place if possible).");
-    structureGroups = [
-      ["1", "2", "3"],
-      ["example", "for example", "evidence"],
-    ];
-  } else if (subject === "geography") {
-    followupQuestion = tighten("Give THREE points and include ONE real example/location/case for at least one point.");
-    structureGroups = [
-      ["1", "2", "3"],
-      ["example", "case", "location", "for example"],
-    ];
-  } else if (subject === "civics") {
-    followupQuestion = tighten("Give THREE points and for each point provide ONE example from society/government.");
-    structureGroups = [
-      ["1", "2", "3"],
-      ["example", "for example"],
-    ];
-  } else if (subject === "commerce") {
-    followupQuestion = tighten("Define the concept, give ONE practical business example, then state ONE advantage/importance.");
-    structureGroups = [
-      ["example", "for example"],
-      ["advantage", "importance", "benefit"],
-      ["profit", "market", "cost", "revenue"],
-    ];
-  } else if (subject === "bookkeeping") {
-    followupQuestion = tighten("Write the correct entry (Dr/Cr) and show the FIRST posting step, then explain briefly.");
-    structureGroups = [
-      ["dr", "debit"],
-      ["cr", "credit"],
-      ["first", "step"],
-    ];
-  } else if (subject === "computer studies") {
-    followupQuestion = tighten("Explain briefly, then list THREE key features/steps.");
-    structureGroups = [
-      ["1", "2", "3"],
-      ["function", "purpose", "use"],
-    ];
+  } else if (subject === "physics" && topic === "motion_speed_velocity") {
+    followupQuestion = tighten("State the formula for speed/velocity, include units, then show ONE substitution step.");
+    structureGroups = [["formula", "v=d/t", "speed = distance/time"], ["units", "m/s", "km/h"], ["substitute", "substitution"]];
+  } else if (subject === "chemistry" && topic === "acids_bases") {
+    followupQuestion = tighten("State how acids and bases affect litmus, and mention pH for each.");
+    structureGroups = [["litmus"], ["ph"], ["acid", "base", "alkali"]];
+  } else if (subject === "bookkeeping" && topic === "accounting_drcr") {
+    followupQuestion = tighten("Write the correct Dr/Cr entry for the transaction and explain why.");
+    structureGroups = [["dr", "debit"], ["cr", "credit"], ["because", "therefore"]];
   }
 
-  // Merge: structure groups + subject banks
-  const bankGroups = subjectKeywordBank(subjectRaw, qType);
+  const topicGroups = topicKeywordBank(topic);
+  const subjectGroups = subjectKeywordBank(subjectRaw, qType);
 
-  // Keep the list reasonable (avoid making it impossible to pass)
-  const merged = [...structureGroups, ...bankGroups];
+  const merged = [...structureGroups, ...topicGroups, ...subjectGroups];
 
-  // Deduplicate groups (roughly) by joining
   const seen = new Set<string>();
   const expectedGroups: KeywordGroup[] = [];
   for (const g of merged) {
@@ -464,10 +526,10 @@ function makeFollowUp(level: Level, subjectRaw: string, userQuestion: string) {
     if (seen.has(key)) continue;
     seen.add(key);
     expectedGroups.push(g);
-    if (expectedGroups.length >= 8) break; // cap for MVP
+    if (expectedGroups.length >= 9) break; // cap for MVP
   }
 
-  return { followupQuestion, expectedGroups, qType };
+  return { followupQuestion, expectedGroups, qType, topic };
 }
 
 export default function ChatPage() {
@@ -507,7 +569,6 @@ export default function ChatPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
-  // Load saved state
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -520,28 +581,15 @@ export default function ChatPage() {
       if (parsed.settings) setSettings(parsed.settings);
       if (Array.isArray(parsed.messages)) setMessages(parsed.messages);
       if (parsed.loopState) setLoopState(parsed.loopState);
-    } catch {
-      // ignore
-    }
+    } catch {}
   }, []);
 
-  // Persist state
   useEffect(() => {
     try {
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({
-          settings,
-          messages,
-          loopState,
-        })
-      );
-    } catch {
-      // ignore
-    }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ settings, messages, loopState }));
+    } catch {}
   }, [settings, messages, loopState]);
 
-  // Auto-scroll
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
@@ -558,8 +606,7 @@ export default function ChatPage() {
 
     if (file.type.startsWith("image/")) {
       const reader = new FileReader();
-      reader.onload = () =>
-        setFilePreview(typeof reader.result === "string" ? reader.result : null);
+      reader.onload = () => setFilePreview(typeof reader.result === "string" ? reader.result : null);
       reader.readAsDataURL(file);
     } else {
       setFilePreview(null);
@@ -567,10 +614,7 @@ export default function ChatPage() {
   }
 
   function addMessage(role: ChatRole, content: string, imageDataUrl?: string) {
-    setMessages((prev) => [
-      ...prev,
-      { id: uid(), role, content, imageDataUrl, createdAt: Date.now() },
-    ]);
+    setMessages((prev) => [...prev, { id: uid(), role, content, imageDataUrl, createdAt: Date.now() }]);
   }
 
   function botExplainAndMaybeFollowUp(userText: string) {
@@ -589,11 +633,7 @@ export default function ChatPage() {
 
     if (!settings.studyLoop) return;
 
-    const { followupQuestion, expectedGroups, qType } = makeFollowUp(
-      settings.level,
-      settings.subject,
-      userText
-    );
+    const { followupQuestion, expectedGroups, qType, topic } = makeFollowUp(settings.level, settings.subject, userText);
 
     addMessage("bot", `Study Loop question:\n${followupQuestion}`);
 
@@ -606,35 +646,33 @@ export default function ChatPage() {
       subject: settings.subject,
       level: settings.level,
       qType,
+      topic,
     });
   }
 
   function formatGroup(g: KeywordGroup) {
-    // show the first option as a “hint”
     return g[0];
   }
 
   function evaluateFollowUpAnswer(answer: string, state: Extract<LoopState, { status: "awaiting_followup_answer" }>) {
-    const { score, satisfied, missing } = scoreGroups(answer, state.expectedGroups);
+    // Optional: improve topic detection using the follow-up answer too (tiny boost)
+    const boostedTopic = state.topic === "general" ? detectTopic(state.subject, `${state.originalQuestion} ${answer}`) : state.topic;
+    const boostedGroups =
+      boostedTopic === state.topic ? state.expectedGroups : [...topicKeywordBank(boostedTopic), ...state.expectedGroups].slice(0, 10);
 
-    const verdict =
-      score >= 0.7 ? "Correct" : score >= 0.4 ? "Partly correct" : "Incorrect";
+    const { score, satisfied, missing } = scoreGroups(answer, boostedGroups);
+
+    const verdict = score >= 0.7 ? "Correct" : score >= 0.4 ? "Partly correct" : "Incorrect";
 
     const includedHints = satisfied.slice(0, 4).map(formatGroup).join(", ");
     const missingHints = missing.slice(0, 4).map(formatGroup).join(", ");
 
-    const guidance =
-      verdict === "Correct"
-        ? `Good. You included key exam elements for ${state.subject}.`
-        : verdict === "Partly correct"
-        ? `You are close. Strengthen your answer using missing key terms and structure for ${state.subject}.`
-        : `Not yet. Re-answer using the expected structure for ${state.subject}. Include key terms clearly.`;
+    const topicLabel = boostedTopic !== "general" ? `Detected topic: ${boostedTopic}` : "Detected topic: general";
 
-    const detail =
-      `Included (detected): ${includedHints || "—"}\n` +
-      `Missing (suggested): ${missingHints || "—"}`;
-
-    addMessage("bot", `${verdict}.\n\nFeedback:\n${guidance}\n\n${detail}`);
+    addMessage(
+      "bot",
+      `${verdict}.\n\n${topicLabel}\n\nIncluded (detected): ${includedHints || "—"}\nMissing (suggested): ${missingHints || "—"}`
+    );
 
     if (verdict === "Correct") {
       setLoopState({ status: "idle" });
@@ -643,13 +681,13 @@ export default function ChatPage() {
 
     if (state.triesLeft > 0) {
       addMessage("bot", `Try again (one more attempt):\n${state.followupQuestion}`);
-      setLoopState({ ...state, triesLeft: state.triesLeft - 1 });
+      setLoopState({ ...state, triesLeft: state.triesLeft - 1, topic: boostedTopic, expectedGroups: boostedGroups });
       return;
     }
 
     addMessage(
       "bot",
-      `Model outline (prototype):\n- Follow ${state.subject} exam structure.\n- Try to include: ${state.expectedGroups
+      `Model outline (prototype):\n- Use ${state.subject} exam structure.\n- Try to include: ${boostedGroups
         .slice(0, 6)
         .map(formatGroup)
         .join(", ")}\n- Keep it clear and exam-style.`
@@ -704,9 +742,7 @@ export default function ChatPage() {
                   <select
                     className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                     value={settings.level}
-                    onChange={(e) =>
-                      setSettings((s) => ({ ...s, level: e.target.value as Settings["level"] }))
-                    }
+                    onChange={(e) => setSettings((s) => ({ ...s, level: e.target.value as Settings["level"] }))}
                   >
                     <option value="CSEE">CSEE (Form IV)</option>
                     <option value="ACSEE">ACSEE (Form VI)</option>
@@ -739,9 +775,7 @@ export default function ChatPage() {
                 </label>
               </div>
 
-              <p className="text-xs text-slate-500">
-                Study Loop evaluates using subject-aware keywords (MVP).
-              </p>
+              <p className="text-xs text-slate-500">Tiny topic detector enables stronger keyword evaluation (MVP).</p>
             </div>
           </div>
 
@@ -814,11 +848,7 @@ export default function ChatPage() {
                 {fileName ? (
                   <div className="flex items-center gap-2 text-xs text-slate-500">
                     <span className="truncate max-w-[240px]">{fileName}</span>
-                    <button
-                      type="button"
-                      className="text-slate-600 hover:text-slate-900 underline"
-                      onClick={clearAttachment}
-                    >
+                    <button type="button" className="text-slate-600 hover:text-slate-900 underline" onClick={clearAttachment}>
                       remove
                     </button>
                   </div>
