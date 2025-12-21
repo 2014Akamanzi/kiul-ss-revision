@@ -20,12 +20,21 @@ type Settings = {
   studyLoop: boolean;
 };
 
+type QType = "definition" | "calculation" | "explain" | "compare" | "essay" | "general";
+
+/**
+ * Smarter evaluation uses keyword GROUPS:
+ * - Each group is a set of acceptable alternatives.
+ * - If any keyword in the group appears, that group is "satisfied".
+ */
+type KeywordGroup = string[];
+
 type LoopState =
   | { status: "idle" }
   | {
       status: "awaiting_followup_answer";
       followupQuestion: string;
-      expectedKeywords: string[];
+      expectedGroups: KeywordGroup[];
       triesLeft: number;
       originalQuestion: string;
       subject: string;
@@ -33,9 +42,7 @@ type LoopState =
       qType: QType;
     };
 
-type QType = "definition" | "calculation" | "explain" | "compare" | "essay" | "general";
-
-const STORAGE_KEY = "kiul-ss-revision:chat:v3";
+const STORAGE_KEY = "kiul-ss-revision:chat:v4";
 
 function uid() {
   return Math.random().toString(16).slice(2) + Date.now().toString(16);
@@ -45,17 +52,27 @@ function normalise(s: string) {
   return s.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-function keywordMatchScore(answer: string, keywords: string[]) {
-  const a = normalise(answer);
-  if (!a) return 0;
-  const hits = keywords.filter((k) => a.includes(normalise(k)));
-  return hits.length / Math.max(1, keywords.length);
+function includesAny(text: string, group: KeywordGroup) {
+  const t = normalise(text);
+  return group.some((k) => t.includes(normalise(k)));
+}
+
+function scoreGroups(answer: string, groups: KeywordGroup[]) {
+  const satisfied: KeywordGroup[] = [];
+  const missing: KeywordGroup[] = [];
+
+  for (const g of groups) {
+    if (includesAny(answer, g)) satisfied.push(g);
+    else missing.push(g);
+  }
+
+  const score = satisfied.length / Math.max(1, groups.length);
+  return { score, satisfied, missing };
 }
 
 function classifyQuestionType(q: string): QType {
   const t = normalise(q);
 
-  // essay-ish prompts
   if (
     t.includes("discuss") ||
     t.includes("evaluate") ||
@@ -96,255 +113,361 @@ function classifyQuestionType(q: string): QType {
 }
 
 /**
- * Subject-specific follow-up templates (MVP).
- * We choose a follow-up question style + expected keywords used for basic evaluation.
+ * Subject keyword banks (MVP).
+ * These are generic “must-include” concepts for exam-style answers.
+ * They are not topic-perfect (no AI yet), but they raise quality a lot.
+ */
+function subjectKeywordBank(subjectRaw: string, qType: QType): KeywordGroup[] {
+  const subject = normalise(subjectRaw);
+
+  const common: KeywordGroup[] = [
+    ["example", "for example", "e.g."],
+  ];
+
+  // LANGUAGE
+  if (["english", "french", "arabic"].includes(subject)) {
+    if (qType === "essay") return [...common, ["introduction", "intro"], ["conclusion", "conclude"], ["because", "therefore"]];
+    if (qType === "compare") return [...common, ["whereas", "however", "on the other hand"], ["difference", "different"]];
+    return [...common, ["because", "therefore"]];
+  }
+
+  if (subject === "kiswahili") {
+    // simple Swahili anchors
+    return [
+      ["mfano", "kwa mfano"],
+      ["kwa sababu", "hivyo", "kwa hiyo"],
+    ];
+  }
+
+  // MATH
+  if (subject === "basic mathematics" || subject === "mathematics") {
+    if (qType === "calculation") return [...common, ["formula", "method"], ["step", "first"], ["answer", "="]];
+    if (qType === "definition") return [...common, ["is", "means"]];
+    return [...common, ["rule", "because"]];
+  }
+
+  // BIOLOGY
+  if (subject === "biology") {
+    if (qType === "definition") {
+      return [
+        ["process", "movement"],
+        ["water", "molecule", "substance"],
+        ["membrane", "selectively permeable", "semi-permeable"],
+        ["concentration", "gradient", "from high to low"],
+      ];
+    }
+    if (qType === "explain") {
+      return [
+        ["process", "steps", "stage"],
+        ["because", "therefore"],
+        ["example", "for example"],
+      ];
+    }
+    if (qType === "compare") {
+      return [
+        ["whereas", "however"],
+        ["similarity", "both"],
+        ["difference", "different"],
+      ];
+    }
+    return [
+      ["process", "movement"],
+      ["cause", "because"],
+      ["effect", "therefore"],
+      ["example", "for example"],
+    ];
+  }
+
+  // CHEMISTRY
+  if (subject === "chemistry") {
+    if (qType === "calculation") {
+      return [
+        ["formula", "equation"],
+        ["units", "unit"],
+        ["substitute", "substitution", "put in values"],
+      ];
+    }
+    if (qType === "definition") {
+      return [
+        ["is", "means"],
+        ["example", "for example"],
+      ];
+    }
+    return [
+      ["equation", "reaction"],
+      ["because", "therefore"],
+      ["example", "for example"],
+    ];
+  }
+
+  // PHYSICS
+  if (subject === "physics") {
+    if (qType === "calculation") {
+      return [
+        ["formula", "equation"],
+        ["units", "unit"],
+        ["substitute", "substitution", "put in values"],
+      ];
+    }
+    if (qType === "definition") {
+      return [
+        ["is", "means"],
+        ["unit", "units"],
+      ];
+    }
+    return [
+      ["because", "therefore"],
+      ["example", "for example"],
+      ["unit", "units"],
+    ];
+  }
+
+  // SOCIAL SCIENCES
+  if (subject === "history") {
+    if (qType === "essay") {
+      return [
+        ["context", "background"],
+        ["cause", "reason"],
+        ["evidence", "example", "for example"],
+        ["conclusion", "conclude"],
+      ];
+    }
+    return [
+      ["cause", "reason"],
+      ["example", "for example", "evidence"],
+      ["therefore", "as a result"],
+    ];
+  }
+
+  if (subject === "geography") {
+    return [
+      ["factor", "cause", "reason"],
+      ["example", "for example", "case", "location"],
+      ["impact", "effect", "result"],
+    ];
+  }
+
+  if (subject === "civics") {
+    return [
+      ["example", "for example"],
+      ["importance", "advantage", "benefit"],
+      ["right", "responsibility", "duty", "law"],
+    ];
+  }
+
+  // BUSINESS
+  if (subject === "commerce") {
+    return [
+      ["example", "for example"],
+      ["advantage", "importance", "benefit"],
+      ["profit", "cost", "revenue", "market"],
+    ];
+  }
+
+  if (subject === "bookkeeping") {
+    return [
+      ["dr", "debit"],
+      ["cr", "credit"],
+      ["entry", "journal", "ledger"],
+    ];
+  }
+
+  if (subject === "computer studies") {
+    return [
+      ["example", "for example"],
+      ["function", "purpose", "use"],
+      ["steps", "procedure", "process"],
+    ];
+  }
+
+  // default fallback
+  return common;
+}
+
+/**
+ * Subject-specific follow-up prompts + expected keyword GROUPS.
+ * We merge:
+ * - prompt template groups (structure)
+ * - subject keyword bank groups (subject concepts)
  */
 function makeFollowUp(level: Level, subjectRaw: string, userQuestion: string) {
   const subject = normalise(subjectRaw);
   const qType = classifyQuestionType(userQuestion);
-
   const isACSEE = level === "ACSEE";
-
   const tighten = (q: string) => (isACSEE ? `${q} (Be precise and concise.)` : q);
 
-  // Helpers: common keyword sets
-  const kw = {
-    point3: ["1", "2", "3"],
-    because: ["because"],
-    example: ["example"],
-    conclude: ["therefore"],
-    formulaUnits: ["formula", "units"],
-    steps: ["step", "first", "then"],
-    evidence: ["example", "because"],
-    compare: ["whereas", "however"],
-  };
-
-  // Default fallback (works for any subject)
   let followupQuestion = tighten("In one or two sentences, restate the main idea in your own words.");
-  let expectedKeywords = ["because", "example"]; // loose
+  let structureGroups: KeywordGroup[] = [
+    ["because", "therefore"],
+    ["example", "for example"],
+  ];
 
-  // ====== LANGUAGE SUBJECTS ======
-  const languageTemplate = () => {
-    if (qType === "definition") {
-      followupQuestion = tighten("Write the definition in ONE sentence, then give ONE example sentence using the term correctly.");
-      expectedKeywords = ["is", "example"];
-      return;
-    }
-    if (qType === "compare") {
-      followupQuestion = tighten("Give TWO differences, then write ONE short sentence to summarise the contrast.");
-      expectedKeywords = ["1", "2", "whereas"];
-      return;
-    }
-    if (qType === "essay") {
-      followupQuestion = tighten("Write a short outline: Introduction (1 sentence), THREE body points, Conclusion (1 sentence).");
-      expectedKeywords = ["introduction", "conclusion", "1", "2", "3"];
-      return;
-    }
-    followupQuestion = tighten("Answer in 3–5 sentences and include ONE supporting example.");
-    expectedKeywords = ["example"];
-  };
-
-  // English-specific
-  const englishTemplate = () => {
+  // SUBJECT TEMPLATES (prompts)
+  if (subject === "english") {
     if (qType === "essay") {
       followupQuestion = tighten(
-        "Write an exam-style plan: Thesis (1 sentence), THREE paragraphs (Point + Evidence + Explanation), then a 1-sentence conclusion."
+        "Write an exam-style plan: Thesis (1 sentence), THREE body points (Point + Evidence + Explanation), then a 1-sentence conclusion."
       );
-      expectedKeywords = ["thesis", "evidence", "conclusion", "1", "2", "3"];
-      return;
+      structureGroups = [
+        ["thesis"],
+        ["evidence", "example", "for example"],
+        ["conclusion", "conclude"],
+        ["1", "2", "3"],
+      ];
+    } else {
+      followupQuestion = tighten(
+        "Give a clear answer, then add ONE example (or a brief quotation if applicable) and explain it in one line."
+      );
+      structureGroups = [
+        ["example", "for example", "e.g."],
+        ["because", "therefore"],
+      ];
     }
-    followupQuestion = tighten("Give a clear answer, then add ONE example (or a brief quotation if applicable) and explain it in one line.");
-    expectedKeywords = ["example", "because"];
-  };
-
-  const kiswahiliTemplate = () => {
+  } else if (subject === "kiswahili") {
     followupQuestion = tighten("Jibu kwa sentensi 3–5, kisha toa MFANO mmoja unaoonyesha umeelewa.");
-    expectedKeywords = ["mfano"];
-  };
-
-  // ====== MATHEMATICS ======
-  const mathTemplate = () => {
+    structureGroups = [
+      ["mfano", "kwa mfano"],
+      ["kwa sababu", "hivyo", "kwa hiyo"],
+    ];
+  } else if (["french", "arabic"].includes(subject)) {
+    followupQuestion = tighten("Answer in 3–5 sentences and include ONE supporting example.");
+    structureGroups = [
+      ["example", "for example", "e.g."],
+      ["because", "therefore"],
+    ];
+  } else if (subject === "basic mathematics") {
+    followupQuestion = tighten("Write the correct formula/rule, then show ONE worked step.");
+    structureGroups = [
+      ["formula", "method", "rule"],
+      ["step", "first"],
+    ];
+  } else if (subject === "mathematics") {
     if (qType === "calculation") {
       followupQuestion = tighten("State the method/formula first, then show the FIRST step clearly (before doing the full calculation).");
-      expectedKeywords = ["formula", "first"];
-      return;
+      structureGroups = [
+        ["formula", "method"],
+        ["first", "step"],
+      ];
+    } else {
+      followupQuestion = tighten("Write the key rule you will use and explain WHY it applies in this case.");
+      structureGroups = [
+        ["rule", "formula", "method"],
+        ["because", "therefore"],
+      ];
     }
-    if (qType === "definition") {
-      followupQuestion = tighten("Define the term and then give ONE simple example or representation.");
-      expectedKeywords = ["is", "example"];
-      return;
-    }
-    followupQuestion = tighten("Write the key rule you will use and explain WHY it applies in this case.");
-    expectedKeywords = ["because", "rule"];
-  };
-
-  const basicMathTemplate = () => {
-    followupQuestion = tighten("Write the correct formula/rule, then show ONE worked step.");
-    expectedKeywords = ["formula", "step"];
-  };
-
-  // ====== SCIENCES ======
-  const biologyTemplate = () => {
-    if (qType === "definition") {
-      followupQuestion = tighten("Give a one-sentence definition and mention TWO key terms that must appear in the definition.");
-      expectedKeywords = ["is", "movement", "process"];
-      return;
-    }
-    if (qType === "explain") {
-      followupQuestion = tighten("List the steps of the process (Step 1, Step 2, Step 3) and give ONE example.");
-      expectedKeywords = ["step", "1", "2", "3", "example"];
-      return;
-    }
+  } else if (subject === "biology") {
     if (qType === "compare") {
       followupQuestion = tighten("Give TWO differences and ONE similarity.");
-      expectedKeywords = ["difference", "similarity", "whereas"];
-      return;
+      structureGroups = [
+        ["difference", "different"],
+        ["similarity", "both"],
+        ["whereas", "however"],
+      ];
+    } else if (qType === "explain") {
+      followupQuestion = tighten("List the steps (Step 1, Step 2, Step 3) and give ONE example.");
+      structureGroups = [
+        ["step", "1"],
+        ["step", "2"],
+        ["step", "3"],
+        ["example", "for example"],
+      ];
+    } else {
+      followupQuestion = tighten("Give a one-sentence definition and include key terms.");
+      structureGroups = [
+        ["is", "means"],
+        ["process", "movement"],
+      ];
     }
-    followupQuestion = tighten("State ONE key idea, ONE cause, and ONE effect, then give an example.");
-    expectedKeywords = ["cause", "effect", "example"];
-  };
-
-  const chemistryTemplate = () => {
+  } else if (subject === "chemistry") {
     if (qType === "calculation") {
-      followupQuestion = tighten("Write the formula, include UNITS, then show the FIRST substitution step.");
-      expectedKeywords = ["formula", "units", "first"];
-      return;
+      followupQuestion = tighten("Write the formula/equation, include UNITS, then show the FIRST substitution step.");
+      structureGroups = [
+        ["formula", "equation"],
+        ["units", "unit"],
+        ["first", "substitute", "substitution"],
+      ];
+    } else {
+      followupQuestion = tighten("State the principle/law involved and give ONE example or equation.");
+      structureGroups = [
+        ["law", "principle"],
+        ["equation", "reaction"],
+        ["example", "for example"],
+      ];
     }
-    if (qType === "definition") {
-      followupQuestion = tighten("Define the term and give ONE example from common laboratory or daily life.");
-      expectedKeywords = ["is", "example"];
-      return;
-    }
-    followupQuestion = tighten("State the principle/law involved and give ONE example or equation.");
-    expectedKeywords = ["law", "equation", "example"];
-  };
-
-  const physicsTemplate = () => {
+  } else if (subject === "physics") {
     if (qType === "calculation") {
-      followupQuestion = tighten("State the formula, list the known values with UNITS, then show the FIRST substitution.");
-      expectedKeywords = ["formula", "units", "first"];
-      return;
+      followupQuestion = tighten("State the formula, list known values with UNITS, then show the FIRST substitution.");
+      structureGroups = [
+        ["formula", "equation"],
+        ["units", "unit"],
+        ["first", "substitute", "substitution"],
+      ];
+    } else {
+      followupQuestion = tighten("Explain briefly, then give ONE example and mention any unit(s) if relevant.");
+      structureGroups = [
+        ["example", "for example"],
+        ["unit", "units"],
+        ["because", "therefore"],
+      ];
     }
-    if (qType === "definition") {
-      followupQuestion = tighten("Define the term and state ONE SI unit related to it (if applicable).");
-      expectedKeywords = ["is", "unit"];
-      return;
-    }
-    followupQuestion = tighten("Explain the concept briefly, then give ONE example and mention any unit(s) if relevant.");
-    expectedKeywords = ["example", "unit"];
-  };
-
-  // ====== SOCIAL SCIENCES ======
-  const historyTemplate = () => {
-    if (qType === "essay") {
-      followupQuestion = tighten("Write an outline: Intro (context), THREE causes/points with brief evidence, then a conclusion line.");
-      expectedKeywords = ["context", "evidence", "conclusion", "1", "2", "3"];
-      return;
-    }
-    if (qType === "compare") {
-      followupQuestion = tighten("Give TWO differences and support each with ONE historical example (event/person/place).");
-      expectedKeywords = ["1", "2", "example"];
-      return;
-    }
+  } else if (subject === "history") {
     followupQuestion = tighten("Give THREE points and for each point add ONE supporting detail (date/person/place if possible).");
-    expectedKeywords = ["1", "2", "3"];
-  };
-
-  const geographyTemplate = () => {
-    if (qType === "essay") {
-      followupQuestion = tighten("Plan your answer: Intro, THREE factors (with examples), impacts, and a short conclusion.");
-      expectedKeywords = ["factors", "example", "impacts", "conclusion", "1", "2", "3"];
-      return;
-    }
+    structureGroups = [
+      ["1", "2", "3"],
+      ["example", "for example", "evidence"],
+    ];
+  } else if (subject === "geography") {
     followupQuestion = tighten("Give THREE points and include ONE real example/location/case for at least one point.");
-    expectedKeywords = ["1", "2", "3", "example"];
-  };
-
-  const civicsTemplate = () => {
-    if (qType === "essay") {
-      followupQuestion = tighten("Outline: define the key concept, THREE arguments with examples, then conclude with one sentence.");
-      expectedKeywords = ["define", "example", "conclude", "1", "2", "3"];
-      return;
-    }
+    structureGroups = [
+      ["1", "2", "3"],
+      ["example", "case", "location", "for example"],
+    ];
+  } else if (subject === "civics") {
     followupQuestion = tighten("Give THREE points and for each point provide ONE example from society/government.");
-    expectedKeywords = ["1", "2", "3", "example"];
-  };
-
-  // ====== BUSINESS SUBJECTS ======
-  const commerceTemplate = () => {
-    if (qType === "calculation") {
-      followupQuestion = tighten("State the formula, show ONE step, then explain what the result means in business terms.");
-      expectedKeywords = ["formula", "step", "means"];
-      return;
-    }
-    followupQuestion = tighten("Define the concept and give ONE practical business example, then state ONE advantage or importance.");
-    expectedKeywords = ["example", "advantage"];
-  };
-
-  const bookkeepingTemplate = () => {
-    if (qType === "calculation") {
-      followupQuestion = tighten("Write the correct entry/format and show the FIRST posting step (Dr/Cr), then explain briefly.");
-      expectedKeywords = ["dr", "cr", "first"];
-      return;
-    }
-    followupQuestion = tighten("State the correct accounting principle and give ONE example of a journal entry (Dr/Cr).");
-    expectedKeywords = ["dr", "cr", "principle"];
-  };
-
-  const computerStudiesTemplate = () => {
-    if (qType === "definition") {
-      followupQuestion = tighten("Define the term and give ONE example (device/software/process).");
-      expectedKeywords = ["is", "example"];
-      return;
-    }
-    if (qType === "compare") {
-      followupQuestion = tighten("Give TWO differences and ONE use-case example.");
-      expectedKeywords = ["1", "2", "example"];
-      return;
-    }
+    structureGroups = [
+      ["1", "2", "3"],
+      ["example", "for example"],
+    ];
+  } else if (subject === "commerce") {
+    followupQuestion = tighten("Define the concept, give ONE practical business example, then state ONE advantage/importance.");
+    structureGroups = [
+      ["example", "for example"],
+      ["advantage", "importance", "benefit"],
+      ["profit", "market", "cost", "revenue"],
+    ];
+  } else if (subject === "bookkeeping") {
+    followupQuestion = tighten("Write the correct entry (Dr/Cr) and show the FIRST posting step, then explain briefly.");
+    structureGroups = [
+      ["dr", "debit"],
+      ["cr", "credit"],
+      ["first", "step"],
+    ];
+  } else if (subject === "computer studies") {
     followupQuestion = tighten("Explain briefly, then list THREE key features/steps.");
-    expectedKeywords = ["1", "2", "3"];
-  };
-
-  // ========= Dispatch by subject =========
-  const subjectKey = subject;
-
-  if (subjectKey === "english") {
-    englishTemplate();
-  } else if (subjectKey === "kiswahili") {
-    kiswahiliTemplate();
-  } else if (["french", "arabic"].includes(subjectKey)) {
-    languageTemplate();
-  } else if (subjectKey === "mathematics") {
-    mathTemplate();
-  } else if (subjectKey === "basic mathematics") {
-    basicMathTemplate();
-  } else if (subjectKey === "biology") {
-    biologyTemplate();
-  } else if (subjectKey === "chemistry") {
-    chemistryTemplate();
-  } else if (subjectKey === "physics") {
-    physicsTemplate();
-  } else if (subjectKey === "history") {
-    historyTemplate();
-  } else if (subjectKey === "geography") {
-    geographyTemplate();
-  } else if (subjectKey === "civics") {
-    civicsTemplate();
-  } else if (subjectKey === "commerce") {
-    commerceTemplate();
-  } else if (subjectKey === "bookkeeping") {
-    bookkeepingTemplate();
-  } else if (subjectKey === "computer studies") {
-    computerStudiesTemplate();
-  } else {
-    // anything else: fallback
+    structureGroups = [
+      ["1", "2", "3"],
+      ["function", "purpose", "use"],
+    ];
   }
 
-  // Light sanity: avoid too-short keyword sets
-  if (expectedKeywords.length < 2) expectedKeywords = expectedKeywords.concat(kw.example);
+  // Merge: structure groups + subject banks
+  const bankGroups = subjectKeywordBank(subjectRaw, qType);
 
-  return { followupQuestion, expectedKeywords, qType };
+  // Keep the list reasonable (avoid making it impossible to pass)
+  const merged = [...structureGroups, ...bankGroups];
+
+  // Deduplicate groups (roughly) by joining
+  const seen = new Set<string>();
+  const expectedGroups: KeywordGroup[] = [];
+  for (const g of merged) {
+    const key = g.map(normalise).sort().join("|");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    expectedGroups.push(g);
+    if (expectedGroups.length >= 8) break; // cap for MVP
+  }
+
+  return { followupQuestion, expectedGroups, qType };
 }
 
 export default function ChatPage() {
@@ -466,7 +589,7 @@ export default function ChatPage() {
 
     if (!settings.studyLoop) return;
 
-    const { followupQuestion, expectedKeywords, qType } = makeFollowUp(
+    const { followupQuestion, expectedGroups, qType } = makeFollowUp(
       settings.level,
       settings.subject,
       userText
@@ -477,8 +600,8 @@ export default function ChatPage() {
     setLoopState({
       status: "awaiting_followup_answer",
       followupQuestion,
-      expectedKeywords,
-      triesLeft: 1, // one retry (2 total attempts)
+      expectedGroups,
+      triesLeft: 1,
       originalQuestion: userText,
       subject: settings.subject,
       level: settings.level,
@@ -486,20 +609,32 @@ export default function ChatPage() {
     });
   }
 
+  function formatGroup(g: KeywordGroup) {
+    // show the first option as a “hint”
+    return g[0];
+  }
+
   function evaluateFollowUpAnswer(answer: string, state: Extract<LoopState, { status: "awaiting_followup_answer" }>) {
-    const score = keywordMatchScore(answer, state.expectedKeywords);
+    const { score, satisfied, missing } = scoreGroups(answer, state.expectedGroups);
 
     const verdict =
-      score >= 0.67 ? "Correct" : score >= 0.34 ? "Partly correct" : "Incorrect";
+      score >= 0.7 ? "Correct" : score >= 0.4 ? "Partly correct" : "Incorrect";
+
+    const includedHints = satisfied.slice(0, 4).map(formatGroup).join(", ");
+    const missingHints = missing.slice(0, 4).map(formatGroup).join(", ");
 
     const guidance =
       verdict === "Correct"
-        ? "Good. You included the key elements. Move on to the next question."
+        ? `Good. You included key exam elements for ${state.subject}.`
         : verdict === "Partly correct"
-        ? `You are close. Add missing key terms and match the expected exam structure for ${state.subject}.`
-        : `Not yet. Use the structure expected in ${state.subject}, and include key terms clearly.`;
+        ? `You are close. Strengthen your answer using missing key terms and structure for ${state.subject}.`
+        : `Not yet. Re-answer using the expected structure for ${state.subject}. Include key terms clearly.`;
 
-    addMessage("bot", `${verdict}.\n\nFeedback:\n${guidance}`);
+    const detail =
+      `Included (detected): ${includedHints || "—"}\n` +
+      `Missing (suggested): ${missingHints || "—"}`;
+
+    addMessage("bot", `${verdict}.\n\nFeedback:\n${guidance}\n\n${detail}`);
 
     if (verdict === "Correct") {
       setLoopState({ status: "idle" });
@@ -514,9 +649,10 @@ export default function ChatPage() {
 
     addMessage(
       "bot",
-      `Model outline (prototype):\n- Use the expected structure for ${state.subject}.\n- Include key terms: ${state.expectedKeywords.join(
-        ", "
-      )}\n- Keep it clear and exam-style.`
+      `Model outline (prototype):\n- Follow ${state.subject} exam structure.\n- Try to include: ${state.expectedGroups
+        .slice(0, 6)
+        .map(formatGroup)
+        .join(", ")}\n- Keep it clear and exam-style.`
     );
     setLoopState({ status: "idle" });
   }
@@ -552,23 +688,14 @@ export default function ChatPage() {
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 px-4 py-10">
       <div className="mx-auto w-full max-w-5xl">
-        {/* Navigation */}
         <div className="flex items-center justify-between mb-6">
-          <Link
-            href="/"
-            className="text-sm font-medium text-slate-600 hover:text-slate-900 transition"
-          >
+          <Link href="/" className="text-sm font-medium text-slate-600 hover:text-slate-900 transition">
             ← Back to Home
           </Link>
-
-          <span className="text-sm font-semibold text-slate-700">
-            KIUL Exam Companion
-          </span>
+          <span className="text-sm font-semibold text-slate-700">KIUL Exam Companion</span>
         </div>
 
-        {/* Chat container */}
         <div className="rounded-3xl bg-white/90 backdrop-blur border border-slate-200 shadow-xl overflow-hidden">
-          {/* Controls */}
           <div className="px-6 py-4 border-b border-slate-200">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex flex-wrap items-center gap-3">
@@ -578,10 +705,7 @@ export default function ChatPage() {
                     className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                     value={settings.level}
                     onChange={(e) =>
-                      setSettings((s) => ({
-                        ...s,
-                        level: e.target.value as Settings["level"],
-                      }))
+                      setSettings((s) => ({ ...s, level: e.target.value as Settings["level"] }))
                     }
                   >
                     <option value="CSEE">CSEE (Form IV)</option>
@@ -594,9 +718,7 @@ export default function ChatPage() {
                   <select
                     className="min-w-[180px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                     value={settings.subject}
-                    onChange={(e) =>
-                      setSettings((s) => ({ ...s, subject: e.target.value }))
-                    }
+                    onChange={(e) => setSettings((s) => ({ ...s, subject: e.target.value }))}
                   >
                     {subjects.map((subj) => (
                       <option key={subj} value={subj}>
@@ -610,9 +732,7 @@ export default function ChatPage() {
                   <input
                     type="checkbox"
                     checked={settings.studyLoop}
-                    onChange={(e) =>
-                      setSettings((s) => ({ ...s, studyLoop: e.target.checked }))
-                    }
+                    onChange={(e) => setSettings((s) => ({ ...s, studyLoop: e.target.checked }))}
                     className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-400"
                   />
                   <span className="font-semibold">Study Loop</span>
@@ -620,12 +740,11 @@ export default function ChatPage() {
               </div>
 
               <p className="text-xs text-slate-500">
-                Study Loop uses subject-specific exam follow-ups.
+                Study Loop evaluates using subject-aware keywords (MVP).
               </p>
             </div>
           </div>
 
-          {/* Messages */}
           <div className="px-6 py-6 min-h-[420px] max-h-[520px] overflow-y-auto bg-gradient-to-b from-white to-slate-50">
             {messages.length === 0 ? (
               <div className="h-full flex items-center justify-center">
@@ -634,12 +753,7 @@ export default function ChatPage() {
             ) : (
               <div className="space-y-4">
                 {messages.map((m) => (
-                  <div
-                    key={m.id}
-                    className={`flex ${
-                      m.role === "student" ? "justify-end" : "justify-start"
-                    }`}
-                  >
+                  <div key={m.id} className={`flex ${m.role === "student" ? "justify-end" : "justify-start"}`}>
                     <div
                       className={[
                         "max-w-[90%] sm:max-w-[75%] rounded-2xl px-4 py-3 shadow-sm border",
@@ -657,9 +771,7 @@ export default function ChatPage() {
                           />
                         </div>
                       ) : null}
-                      <p className="whitespace-pre-wrap text-sm leading-relaxed">
-                        {m.content}
-                      </p>
+                      <p className="whitespace-pre-wrap text-sm leading-relaxed">{m.content}</p>
                     </div>
                   </div>
                 ))}
@@ -668,7 +780,6 @@ export default function ChatPage() {
             )}
           </div>
 
-          {/* Composer */}
           <div className="px-6 py-4 border-t border-slate-200 bg-white">
             <textarea
               className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none"
