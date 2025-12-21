@@ -1,65 +1,85 @@
-import Image from "next/image";
+import Link from "next/link";
 
 export default function Home() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <main className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 px-4 py-12">
+      <div className="mx-auto max-w-5xl">
+        {/* Top bar */}
+        <div className="flex items-center justify-between mb-10">
+          <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
+            KIUL · Exam Companion
           </p>
+          <span className="text-xs font-semibold text-slate-500">MVP</span>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        {/* Hero */}
+        <div className="rounded-3xl bg-white/90 backdrop-blur border border-slate-200 shadow-xl p-8 sm:p-12">
+          <div className="max-w-2xl">
+            <h1 className="text-4xl sm:text-5xl font-bold text-slate-900 leading-tight">
+              Revise smarter for CSEE and ACSEE
+            </h1>
+
+            <p className="mt-4 text-slate-600 text-lg">
+              A focused space to revise for{" "}
+              <span className="font-semibold">CSEE (Form IV)</span> and{" "}
+              <span className="font-semibold">ACSEE (Form VI)</span>. Ask
+              questions, get clear explanations, and practise with follow-ups.
+            </p>
+
+            <div className="mt-8 flex flex-col sm:flex-row gap-4">
+              <Link
+                href="/chat"
+                className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-6 py-3 text-white font-semibold shadow-md hover:bg-blue-700 transition"
+              >
+                Ask KIUL Bot
+              </Link>
+
+              <Link
+                href="/chat"
+                className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-6 py-3 text-slate-700 font-semibold hover:bg-slate-50 transition"
+              >
+                Start revision now
+              </Link>
+            </div>
+
+            <p className="mt-3 text-sm text-slate-500">
+              Tip: Choose your <span className="font-semibold">Level</span> and{" "}
+              <span className="font-semibold">Subject</span> inside the chat for
+              focused revision.
+            </p>
+          </div>
+
+          {/* How it works */}
+          <div className="mt-12 grid gap-6 sm:grid-cols-3">
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <p className="font-semibold text-slate-900">1) Ask</p>
+              <p className="mt-2 text-sm text-slate-600">
+                Type a question or upload an image of an exam question.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <p className="font-semibold text-slate-900">2) Learn</p>
+              <p className="mt-2 text-sm text-slate-600">
+                Get clear explanations aligned with your level and subject.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <p className="font-semibold text-slate-900">3) Practise</p>
+              <p className="mt-2 text-sm text-slate-600">
+                Use Study Loop to answer follow-up questions and improve.
+              </p>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="mt-12 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm text-slate-500">
+            <span>KIUL Exam Companion MVP</span>
+            <span>CSEE (Form IV) · ACSEE (Form VI)</span>
+          </div>
         </div>
-      </main>
-    </div>
+      </div>
+    </main>
   );
 }
