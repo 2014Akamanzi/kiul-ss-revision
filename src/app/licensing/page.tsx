@@ -1,6 +1,36 @@
 import Link from "next/link";
 
 export default function LicensingPage() {
+  const mailto =
+    "mailto:info.kiul@katokifoundation.org" +
+    "?subject=" +
+    encodeURIComponent("Request for KIUL Exam Companion School Pilot") +
+    "&body=" +
+    encodeURIComponent(
+      [
+        "Dear KIUL Team,",
+        "",
+        "We would like to request a one-term pilot for KIUL Exam Companion – School Edition.",
+        "",
+        "School name:",
+        "Region/District:",
+        "School type (government/private):",
+        "Levels (CSEE/ACSEE):",
+        "Approx. number of students (Form IV / Form VI):",
+        "Contact person (name & role):",
+        "Phone/WhatsApp:",
+        "",
+        "Preferred start date for the pilot:",
+        "",
+        "Any specific subjects/combinations to prioritise:",
+        "",
+        "Kind regards,",
+        "[Name]",
+        "[Position]",
+        "[School]",
+      ].join("\n")
+    );
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 px-4 py-12">
       <div className="mx-auto max-w-4xl">
@@ -19,6 +49,31 @@ export default function LicensingPage() {
 
           <p className="mt-3 text-slate-600 text-lg max-w-2xl">
             KIUL Exam Companion – School Edition
+          </p>
+
+          {/* Primary CTA */}
+          <div className="mt-6 flex flex-col sm:flex-row gap-3">
+            <a
+              href={mailto}
+              className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-6 py-3 text-white font-semibold shadow-md hover:bg-blue-700 transition"
+            >
+              Request a School Pilot (Email)
+            </a>
+
+            <a
+              href="https://wa.me/255758624863?text=Hello%20KIUL%2C%20we%20would%20like%20to%20request%20a%20one-term%20school%20pilot%20for%20KIUL%20Exam%20Companion.%20Please%20advise%20the%20next%20steps."
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-6 py-3 text-slate-700 font-semibold hover:bg-slate-50 transition"
+            >
+              Request via WhatsApp
+            </a>
+          </div>
+
+          <p className="mt-3 text-sm text-slate-500 max-w-2xl">
+            Pilot requests are reviewed with school administration. KIUL Exam
+            Companion supports teaching and learning and does not replace
+            teachers.
           </p>
         </div>
 
