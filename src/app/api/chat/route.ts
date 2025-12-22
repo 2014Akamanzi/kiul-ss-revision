@@ -1,81 +1,165 @@
-import OpenAI from "openai";
+import { NextResponse } from "next/server";
 
-export const runtime = "nodejs"; // important for OpenAI SDK
-export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+/**
+ * KIUL Exam Companion – API Route (Exam Coach Mode)
+ * - NECTA-style, mark-oriented answers
+ * - Plain text only (no markdown bold)
+ */
+
+type IncomingMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
 
 type Body = {
-  message: string;
+  messages?: IncomingMessage[];
+  level?: string;
+  subject?: string;
+  studyLoop?: boolean;
+};
+
+function safeString(x: unknown, fallback = ""): string {
+  return typeof x === "string" ? x : fallback;
+}
+
+function clampMessages(messages: IncomingMessage[], max = 20) {
+  return messages.slice(-max);
+}
+
+function makeSystemPrompt(params: {
   level: string;
   subject: string;
   studyLoop: boolean;
-  history?: Array<{ role: "student" | "bot"; content: string }>;
-};
+}) {
+  const { level, subject, studyLoop } = params;
 
-function buildSystemPrompt(level: string, subject: string, studyLoop: boolean) {
   return `
-You are KIUL Exam Companion, a calm, exam-focused tutor for NECTA-style revision.
+You are KIUL Exam Companion, an exam coach for NECTA revision in Tanzania.
 
-BOUNDARIES (must follow):
-- Never claim you can see an uploaded image unless the user pasted its text.
-- If a question is missing key details, ask 1–2 clarifying questions first.
-- Do not invent facts, formulas, or quotations. If unsure, say so and explain what you need.
-- Keep answers exam-oriented: definition, key points, brief example, common mistakes, and a quick self-check question.
-- If Study Loop is ON, end with ONE short follow-up question for the student to answer in their own words.
+Context:
+- Level: ${level}
+- Subject: ${subject}
 
-CONTEXT:
-Level: ${level}
-Subject: ${subject}
-Study Loop: ${studyLoop ? "ON" : "OFF"}
+ROLE
+- You help students score marks in exams.
+- You explain clearly, briefly, and in an exam-oriented way.
+
+ANSWER STYLE
+- Use simple English.
+- Be direct and structured.
+- Avoid long paragraphs.
+- Do NOT use markdown emphasis.
+
+MANDATORY ANSWER STRUCTURE
+Always respond using these numbered sections:
+
+1) Direct answer (NECTA style)
+- One short paragraph or 2–3 sentences.
+
+2) Key points to mention
+- 3–6 bullet points using "-" only.
+- Each point should earn marks.
+
+3) Brief example (if relevant)
+- 1–3 lines.
+- Use a familiar school-level example.
+
+4) Common mistakes
+- 2–4 bullet points using "-" only.
+- Focus on mistakes NECTA penalises.
+
+5) How to score full marks
+- 3–5 bullet points.
+- Tell the student exactly what to include.
+
+${studyLoop ? "6) Study Loop question\n- ONE short question for the student to answer next." : ""}
+
+BOUNDARIES
+- Do not invent past paper questions or official mark schemes.
+- If information is missing, ask 1–2 clarifying questions first.
+- If unsure, say so briefly and explain what is known.
+
+EQUATIONS
+- Write equations in plain text.
+- Example: 2H2 + O2 -> 2H2O
+- Do not use LaTeX.
+
+GOAL
+- The student should know exactly how to answer this question in an exam.
 `.trim();
 }
 
-function buildUserPrompt(body: Body) {
-  const lines: string[] = [];
-  lines.push(`Student question: ${body.message}`);
+async function callOpenAI(args: {
+  apiKey: string;
+  messages: IncomingMessage[];
+  level: string;
+  subject: string;
+  studyLoop: boolean;
+}) {
+  const systemPrompt = makeSystemPrompt(args);
 
-  if (body.history && body.history.length) {
-    lines.push("");
-    lines.push("Recent chat history (most recent last):");
-    for (const m of body.history.slice(-8)) {
-      lines.push(`${m.role === "student" ? "Student" : "Tutor"}: ${m.content}`);
-    }
+  const payload = {
+    model: "gpt-4o-mini",
+    temperature: 0.4,
+    messages: [
+      { role: "system", content: systemPrompt },
+      ...clampMessages(args.messages, 20),
+    ],
+  };
+
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${args.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const json = await res.json();
+
+  if (!res.ok) {
+    throw new Error(json?.error?.message || "OpenAI API error");
   }
 
-  return lines.join("\n");
+  return json.choices?.[0]?.message?.content?.trim() || "";
 }
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as Body;
-
-    if (!process.env.OPENAI_API_KEY) {
-      return Response.json(
-        { ok: false, error: "Missing OPENAI_API_KEY on server." },
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: "OPENAI_API_KEY missing in .env.local" },
         { status: 500 }
       );
     }
 
-    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const body = (await req.json()) as Body;
 
-    const system = buildSystemPrompt(body.level, body.subject, body.studyLoop);
-    const user = buildUserPrompt(body);
+    const messages = Array.isArray(body.messages) ? body.messages : [];
+    const level = safeString(body.level, "CSEE (Form IV)");
+    const subject = safeString(body.subject, "English");
+    const studyLoop = Boolean(body.studyLoop);
 
-    // Using Responses API (simple + reliable)
-    const response = await client.responses.create({
-      model: "gpt-5.2",
-      input: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
+    if (!messages.length) {
+      return NextResponse.json({ error: "No messages provided." }, { status: 400 });
+    }
+
+    const text = await callOpenAI({
+      apiKey,
+      messages,
+      level,
+      subject,
+      studyLoop,
     });
 
-    return Response.json({
-      ok: true,
-      text: response.output_text || "No response text returned.",
-    });
+    return NextResponse.json({ text }, { status: 200 });
   } catch (err: any) {
-    return Response.json(
-      { ok: false, error: err?.message || "Unknown server error" },
+    return NextResponse.json(
+      { error: err?.message || "Server error" },
       { status: 500 }
     );
   }
