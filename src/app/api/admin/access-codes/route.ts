@@ -4,67 +4,72 @@ import { prisma } from "@/lib/prisma";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/**
- * GET – list all access codes
- */
+type Status = "ACTIVE" | "DISABLED";
+
+function normalizeAllowedLevels(input: unknown): string {
+  // Store as a comma-separated string in DB (simple + reliable)
+  if (Array.isArray(input)) {
+    return input.map(String).map(s => s.trim()).filter(Boolean).join(",");
+  }
+  if (typeof input === "string") return input;
+  return "";
+}
+
 export async function GET() {
-  const codes = await prisma.accessCode.findMany({
-    orderBy: { createdAt: "desc" },
-  });
-
-  return NextResponse.json(codes);
+  try {
+    const rows = await prisma.accessCode.findMany({
+      orderBy: { createdAt: "desc" },
+    });
+    return NextResponse.json({ ok: true, rows });
+  } catch (e) {
+    return NextResponse.json({ ok: false, error: "Failed to fetch codes" }, { status: 500 });
+  }
 }
 
-/**
- * POST – create a new access code
- */
 export async function POST(req: Request) {
-  const body = await req.json();
+  try {
+    const body = await req.json().catch(() => ({}));
 
-  const {
-    code,
-    schoolName = "",
-    allowedLevels = [],
-    status = "ACTIVE",
-  } = body;
+    const code = typeof body.code === "string" ? body.code.trim() : "";
+    const schoolName = typeof body.schoolName === "string" ? body.schoolName.trim() : "";
+    const allowedLevels = normalizeAllowedLevels(body.allowedLevels);
+    const status: Status = body.status === "DISABLED" ? "DISABLED" : "ACTIVE";
 
-  if (!code || !Array.isArray(allowedLevels)) {
-    return NextResponse.json(
-      { error: "Invalid payload" },
-      { status: 400 }
-    );
+    if (!code) {
+      return NextResponse.json({ ok: false, error: "Missing code" }, { status: 400 });
+    }
+
+    const created = await prisma.accessCode.create({
+      data: {
+        code,
+        schoolName,      // ✅ never null
+        allowedLevels,   // ✅ always string
+        status,
+      },
+    });
+
+    return NextResponse.json({ ok: true, created });
+  } catch (e) {
+    return NextResponse.json({ ok: false, error: "Failed to create code" }, { status: 500 });
   }
-
-  const created = await prisma.accessCode.create({
-    data: {
-      code,
-      schoolName,
-      allowedLevels: allowedLevels.join(","), // ✅ FIX
-      status,
-    },
-  });
-
-  return NextResponse.json(created);
 }
 
-/**
- * DELETE – disable an access code
- */
 export async function DELETE(req: Request) {
-  const url = new URL(req.url);
-  const id = url.searchParams.get("id");
+  try {
+    const url = new URL(req.url);
+    const id = url.searchParams.get("id");
 
-  if (!id) {
-    return NextResponse.json(
-      { error: "Missing id" },
-      { status: 400 }
-    );
+    if (!id) {
+      return NextResponse.json({ ok: false, error: "Missing id" }, { status: 400 });
+    }
+
+    const updated = await prisma.accessCode.update({
+      where: { id },
+      data: { status: "DISABLED" },
+    });
+
+    return NextResponse.json({ ok: true, updated });
+  } catch (e) {
+    return NextResponse.json({ ok: false, error: "Failed to disable code" }, { status: 500 });
   }
-
-  await prisma.accessCode.update({
-    where: { id },
-    data: { status: "DISABLED" },
-  });
-
-  return NextResponse.json({ ok: true });
 }
