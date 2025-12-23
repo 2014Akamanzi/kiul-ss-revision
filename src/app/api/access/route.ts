@@ -3,15 +3,6 @@ import { NextResponse } from "next/server";
 const COOKIE_NAME = "kiul_access";
 const COOKIE_VALUE = "ok";
 
-/**
- * Access codes (MVP)
- * ------------------
- * For MVP we store allowed codes in an environment variable:
- *   KIUL_ACCESS_CODES="CODE1,CODE2,CODE3"
- *
- * Example:
- *   KIUL_ACCESS_CODES="KIUL-PILOT-001,KIUL-MIKOCHENI-2026"
- */
 function getAllowedCodes(): string[] {
   const raw = process.env.KIUL_ACCESS_CODES || "";
   return raw
@@ -29,15 +20,12 @@ export async function POST(req: Request) {
   }
 
   const allowed = getAllowedCodes();
-  const ok = allowed.includes(code);
-
-  if (!ok) {
+  if (!allowed.includes(code)) {
     return NextResponse.json({ error: "Invalid access code." }, { status: 401 });
   }
 
   const res = NextResponse.json({ ok: true });
 
-  // Set cookie for 30 days
   res.cookies.set({
     name: COOKIE_NAME,
     value: COOKIE_VALUE,
@@ -45,7 +33,7 @@ export async function POST(req: Request) {
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    maxAge: 60 * 60 * 24 * 30,
+    maxAge: 60 * 60 * 24 * 30, // 30 days
   });
 
   return res;

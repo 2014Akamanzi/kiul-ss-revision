@@ -26,7 +26,6 @@ export default function AccessPage() {
         return;
       }
 
-      // success: cookie set by server
       window.location.href = "/chat";
     } catch {
       setError("Network error. Please try again.");
@@ -49,18 +48,19 @@ export default function AccessPage() {
           </h1>
 
           <p className="mt-3 text-slate-600">
-            Your school provides an official access code for KIUL Exam Companion.
-            Enter it below to start revision.
+            KIUL Exam Companion is provided through licensed school access. Enter the official
+            access code provided by your school to start revision.
           </p>
 
           <div className="mt-8">
             <label className="block text-sm font-semibold text-slate-700">
               Access code
             </label>
+
             <input
               value={code}
               onChange={(e) => setCode(e.target.value)}
-              placeholder="e.g., KIUL-MIKOCHENI-2026"
+              placeholder="e.g., KIUL-PILOT-001"
               className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
             />
 
@@ -75,16 +75,42 @@ export default function AccessPage() {
               disabled={!code.trim() || loading}
               className="mt-5 inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-8 py-4 text-white font-semibold shadow-md hover:bg-blue-700 transition disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              {loading ? "Checking..." : "Continue"}
+              {loading ? "Checking..." : "Enter learning space"}
             </button>
 
-            <p className="mt-4 text-sm text-slate-500">
-              Don’t have a code? Visit{" "}
-              <Link href="/licensing" className="text-blue-600 hover:underline font-medium">
-                Licensing &amp; Access
-              </Link>{" "}
-              to request a school pilot or licence.
-            </p>
+            <div className="mt-5 text-sm text-slate-600">
+              <p className="text-slate-500">
+                Don’t have a code? Request school access via{" "}
+                <Link href="/licensing" className="text-blue-600 hover:underline font-medium">
+                  Licensing &amp; Access
+                </Link>
+                .
+              </p>
+            </div>
+
+            <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
+              <p className="font-semibold text-slate-800">Enquiries & partnerships</p>
+              <p className="mt-1 text-slate-600">
+                Email:{" "}
+                <a
+                  href="mailto:info.kiul@katokifoundation.org"
+                  className="text-blue-600 hover:underline font-medium"
+                >
+                  info.kiul@katokifoundation.org
+                </a>
+              </p>
+              <p className="text-slate-600">
+                WhatsApp:{" "}
+                <a
+                  href="https://wa.me/255758624863"
+                  className="text-blue-600 hover:underline font-medium"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  +255 758 624 863
+                </a>
+              </p>
+            </div>
           </div>
         </div>
       </div>
