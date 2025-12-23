@@ -9,7 +9,6 @@ export default function Home() {
           <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
             KIUL · Exam Companion
           </p>
-          {/* (If you removed MVP earlier, keep it removed. If you still want it, add it back.) */}
         </div>
 
         {/* Main card */}
@@ -22,15 +21,15 @@ export default function Home() {
             <p className="mt-5 text-slate-600 text-base sm:text-lg">
               A focused space to revise for{" "}
               <span className="font-semibold">CSEE (Form IV)</span> and{" "}
-              <span className="font-semibold">ACSEE (Form VI)</span>. Ask questions, get
-              clear explanations, and practise with follow-ups — grounded in Ubuntu values of
-              guidance, patience, and growth.
+              <span className="font-semibold">ACSEE (Form VI)</span>. Ask questions,
+              get clear explanations, and practise with follow-ups — grounded in
+              Ubuntu values of guidance, patience, and growth.
             </p>
 
-            {/* CTA row — ONLY CHANGE: add Licensing button next to Start revision */}
+            {/* CTA row: 3 buttons */}
             <div className="mt-8 flex flex-col sm:flex-row gap-4">
               <Link
-                href="/chat"
+                href="/access"
                 className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-8 py-4 text-white font-semibold shadow-md hover:bg-blue-700 transition"
               >
                 Start revision
@@ -42,6 +41,13 @@ export default function Home() {
               >
                 Licensing &amp; Access
               </Link>
+
+              <Link
+                href="/how-it-works"
+                className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-8 py-4 text-white font-semibold shadow-md hover:bg-blue-700 transition"
+              >
+                How KIUL works
+              </Link>
             </div>
 
             <p className="mt-5 text-sm text-slate-500">
@@ -50,26 +56,26 @@ export default function Home() {
             </p>
           </div>
 
-          {/* Optional: if your earlier version had the 3 feature cards, keep them */}
+          {/* Feature cards */}
           <div className="mt-10 grid gap-6 sm:grid-cols-3">
-            <div className="rounded-2xl bg-white border border-slate-200 shadow-sm p-5">
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <h3 className="font-semibold text-slate-900">1) Ask</h3>
               <p className="mt-1 text-sm text-slate-600">
                 Type a question or upload an image of an exam question.
               </p>
             </div>
 
-            <div className="rounded-2xl bg-white border border-slate-200 shadow-sm p-5">
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <h3 className="font-semibold text-slate-900">2) Learn</h3>
               <p className="mt-1 text-sm text-slate-600">
                 Get clear explanations aligned with your level and subject.
               </p>
             </div>
 
-            <div className="rounded-2xl bg-white border border-slate-200 shadow-sm p-5">
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <h3 className="font-semibold text-slate-900">3) Practise</h3>
               <p className="mt-1 text-sm text-slate-600">
-                Use Study Loop to answer follow-up questions and improve.
+                Use follow-up questions to strengthen understanding (Study Loop).
               </p>
             </div>
           </div>
