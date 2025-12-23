@@ -1,37 +1,36 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 
 type AccessCode = {
   id: string;
   code: string;
   schoolName: string | null;
-  allowedLevels: string | null;
-  status: "ACTIVE" | "DISABLED";
+  allowedLevels: string[];
+  status: string;
   createdAt: string;
 };
 
-export default function AdminPage() {
-  const router = useRouter();
-  const [items, setItems] = useState<AccessCode[]>([]);
+export default function AdminHome() {
+  const [codes, setCodes] = useState<AccessCode[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
   const [code, setCode] = useState("");
   const [schoolName, setSchoolName] = useState("");
-  const [allowedLevels, setAllowedLevels] = useState("CSEE,ACSEE");
+  const [allowedLevels, setAllowedLevels] = useState<string>("CSEE,ACSEE");
 
   async function load() {
-    setErr(null);
     setLoading(true);
+    setErr(null);
     try {
-      const res = await fetch("/api/admin/access-codes");
-      if (!res.ok) throw new Error("Failed to load access codes");
+      const res = await fetch("/api/admin/access-codes", { cache: "no-store" });
       const data = await res.json();
-      setItems(data.items || []);
+      if (!res.ok) throw new Error(data?.error || "Failed to load codes");
+      setCodes(data.codes || []);
     } catch (e: any) {
-      setErr(e?.message || "Failed to load");
+      setErr(e?.message || "Failed to load codes");
     } finally {
       setLoading(false);
     }
@@ -41,35 +40,32 @@ export default function AdminPage() {
     load();
   }, []);
 
-  const activeCount = useMemo(
-    () => items.filter((x) => x.status === "ACTIVE").length,
-    [items]
-  );
-
-  async function createCode(e: React.FormEvent) {
-    e.preventDefault();
+  async function createCode() {
     setErr(null);
-
     try {
+      const levels = allowedLevels
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+
       const res = await fetch("/api/admin/access-codes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           code,
-          schoolName: schoolName || null,
-          allowedLevels: allowedLevels || null,
+          schoolName,
+          allowedLevels: levels,
+          status: "ACTIVE",
         }),
       });
-
-      const data = await res.json().catch(() => ({}));
+      const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Failed to create code");
 
       setCode("");
       setSchoolName("");
-      setAllowedLevels("CSEE,ACSEE");
       await load();
     } catch (e: any) {
-      setErr(e?.message || "Failed to create");
+      setErr(e?.message || "Failed to create code");
     }
   }
 
@@ -79,139 +75,140 @@ export default function AdminPage() {
       const res = await fetch(`/api/admin/access-codes?id=${encodeURIComponent(id)}`, {
         method: "DELETE",
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || "Failed to disable");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Failed to disable code");
       await load();
     } catch (e: any) {
-      setErr(e?.message || "Failed to disable");
+      setErr(e?.message || "Failed to disable code");
     }
   }
 
-  async function logout() {
-    await fetch("/api/admin/logout", { method: "POST" });
-    router.push("/admin/login");
-    router.refresh();
-  }
+  const activeCount = useMemo(
+    () => codes.filter((c) => c.status === "ACTIVE").length,
+    [codes]
+  );
 
   return (
-    <main className="min-h-screen px-4 py-10">
+    <main className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 px-4 py-10">
       <div className="mx-auto w-full max-w-5xl">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold text-slate-900">Admin · Access Codes</h1>
-            <p className="mt-1 text-slate-600">
-              Active codes: <span className="font-semibold">{activeCount}</span>
-            </p>
-          </div>
+        <div className="flex items-center justify-between mb-6">
+          <Link href="/" className="text-sm font-semibold text-blue-700 hover:underline">
+            ← Back to Home
+          </Link>
 
-          <button
-            onClick={logout}
-            className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-          >
-            Log out
-          </button>
+          <form action="/api/admin/logout" method="POST">
+            <button
+              type="submit"
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+            >
+              Logout
+            </button>
+          </form>
         </div>
 
-        {err ? (
-          <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {err}
-          </div>
-        ) : null}
+        <div className="rounded-3xl bg-white shadow-xl border border-slate-200 p-6 sm:p-10">
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">
+            KIUL Admin · Access Codes
+          </h1>
+          <p className="mt-2 text-slate-600">
+            Active codes: <span className="font-semibold">{activeCount}</span>
+          </p>
 
-        <div className="mt-8 grid gap-6 lg:grid-cols-2">
-          <div className="rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-slate-900">Create a new code</h2>
-            <form onSubmit={createCode} className="mt-4 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700">Code</label>
-                <input
-                  className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-blue-600"
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  placeholder="KIUL-SCHOOL-001"
-                />
-              </div>
+          {err && (
+            <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {err}
+            </div>
+          )}
 
-              <div>
-                <label className="block text-sm font-medium text-slate-700">School name (optional)</label>
-                <input
-                  className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-blue-600"
-                  value={schoolName}
-                  onChange={(e) => setSchoolName(e.target.value)}
-                  placeholder="Example Secondary School"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700">
-                  Allowed levels (comma-separated)
-                </label>
-                <input
-                  className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-blue-600"
-                  value={allowedLevels}
-                  onChange={(e) => setAllowedLevels(e.target.value)}
-                  placeholder="CSEE,ACSEE"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={!code.trim()}
-                className="w-full rounded-xl bg-blue-600 px-4 py-3 font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-60"
-              >
-                Create code
-              </button>
-            </form>
+          <div className="mt-6 grid gap-3 sm:grid-cols-3">
+            <input
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="Code (e.g., KIUL-PILOT-002)"
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-200"
+            />
+            <input
+              value={schoolName}
+              onChange={(e) => setSchoolName(e.target.value)}
+              placeholder="School name (optional)"
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-200"
+            />
+            <input
+              value={allowedLevels}
+              onChange={(e) => setAllowedLevels(e.target.value)}
+              placeholder="Allowed levels (comma-separated)"
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-200"
+            />
           </div>
 
-          <div className="rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-sm">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-slate-900">Existing codes</h2>
-              <button
-                onClick={load}
-                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                Refresh
-              </button>
+          <div className="mt-3">
+            <button
+              onClick={createCode}
+              className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md hover:bg-blue-700"
+            >
+              Create code
+            </button>
+
+            <button
+              onClick={load}
+              className="ml-3 inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+            >
+              Refresh
+            </button>
+          </div>
+
+          <div className="mt-8">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-semibold text-slate-900">Codes</h2>
+              {loading && <span className="text-xs text-slate-500">Loading…</span>}
             </div>
 
-            <div className="mt-4">
-              {loading ? (
-                <p className="text-slate-600">Loading...</p>
-              ) : items.length === 0 ? (
-                <p className="text-slate-600">No access codes yet.</p>
-              ) : (
-                <div className="space-y-3">
-                  {items.map((x) => (
-                    <div
-                      key={x.id}
-                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <div className="font-semibold text-slate-900">{x.code}</div>
-                          <div className="text-sm text-slate-600">
-                            {x.schoolName || "—"} · {x.allowedLevels || "—"} ·{" "}
-                            <span className={x.status === "ACTIVE" ? "text-green-700" : "text-slate-500"}>
-                              {x.status}
-                            </span>
-                          </div>
-                        </div>
-
-                        {x.status === "ACTIVE" ? (
-                          <button
-                            onClick={() => disable(x.id)}
-                            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                          >
-                            Disable
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
+            <div className="overflow-x-auto rounded-2xl border border-slate-200">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr className="text-left text-slate-600">
+                    <th className="px-4 py-3">Code</th>
+                    <th className="px-4 py-3">School</th>
+                    <th className="px-4 py-3">Levels</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {codes.map((c) => (
+                    <tr key={c.id} className="bg-white">
+                      <td className="px-4 py-3 font-semibold text-slate-900">{c.code}</td>
+                      <td className="px-4 py-3 text-slate-700">{c.schoolName || "—"}</td>
+                      <td className="px-4 py-3 text-slate-700">
+                        {(c.allowedLevels || []).join(", ") || "—"}
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">{c.status}</td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          onClick={() => disable(c.id)}
+                          disabled={c.status !== "ACTIVE"}
+                          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                        >
+                          Disable
+                        </button>
+                      </td>
+                    </tr>
                   ))}
-                </div>
-              )}
+                  {!loading && codes.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-10 text-center text-slate-500">
+                        No codes yet. Create one above.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
+
+            <p className="mt-3 text-xs text-slate-500">
+              Admin page URL: <span className="font-semibold">/admin</span> (after logging in at{" "}
+              <span className="font-semibold">/admin/login</span>).
+            </p>
           </div>
         </div>
       </div>
