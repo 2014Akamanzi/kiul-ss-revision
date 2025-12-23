@@ -4,6 +4,20 @@ import { prisma } from "@/lib/prisma";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/**
+ * GET – list all access codes
+ */
+export async function GET() {
+  const codes = await prisma.accessCode.findMany({
+    orderBy: { createdAt: "desc" },
+  });
+
+  return NextResponse.json(codes);
+}
+
+/**
+ * POST – create a new access code
+ */
 export async function POST(req: Request) {
   const body = await req.json();
 
@@ -14,36 +28,37 @@ export async function POST(req: Request) {
     status = "ACTIVE",
   } = body;
 
-  if (!code) {
-    return NextResponse.json({ error: "Missing code" }, { status: 400 });
+  if (!code || !Array.isArray(allowedLevels)) {
+    return NextResponse.json(
+      { error: "Invalid payload" },
+      { status: 400 }
+    );
   }
 
-  const record = await prisma.accessCode.create({
+  const created = await prisma.accessCode.create({
     data: {
-      code: String(code),
-      schoolName: String(schoolName),
-      allowedLevels,
+      code,
+      schoolName,
+      allowedLevels: allowedLevels.join(","), // ✅ FIX
       status,
     },
   });
 
-  return NextResponse.json(record);
+  return NextResponse.json(created);
 }
 
-export async function GET() {
-  const records = await prisma.accessCode.findMany({
-    orderBy: { createdAt: "desc" },
-  });
-
-  return NextResponse.json(records);
-}
-
+/**
+ * DELETE – disable an access code
+ */
 export async function DELETE(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const id = searchParams.get("id");
+  const url = new URL(req.url);
+  const id = url.searchParams.get("id");
 
   if (!id) {
-    return NextResponse.json({ error: "Missing id" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Missing id" },
+      { status: 400 }
+    );
   }
 
   await prisma.accessCode.update({
