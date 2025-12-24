@@ -4,16 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-"build": "next build --webpack",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint"
   },
   "dependencies": {
-    "@prisma/client": "^6.15.0",
     "katex": "^0.16.27",
     "next": "16.1.0",
     "openai": "^6.15.0",
-    "prisma": "^6.15.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-markdown": "^10.1.0",
