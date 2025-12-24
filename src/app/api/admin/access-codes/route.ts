@@ -1,75 +1,94 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Status = "ACTIVE" | "DISABLED";
+function isAdmin(req: NextRequest) {
+  const cookie = req.cookies.get("kiul_admin")?.value;
+  return cookie === "1";
+}
 
-function normalizeAllowedLevels(input: unknown): string {
-  // Store as a comma-separated string in DB (simple + reliable)
-  if (Array.isArray(input)) {
-    return input.map(String).map(s => s.trim()).filter(Boolean).join(",");
+function toCsvString(v: unknown): string {
+  if (Array.isArray(v)) {
+    return v
+      .map((x) => String(x).trim())
+      .filter(Boolean)
+      .join(", ");
   }
-  if (typeof input === "string") return input;
+  if (typeof v === "string") return v.trim();
   return "";
 }
 
-export async function GET() {
-  try {
-    const rows = await prisma.accessCode.findMany({
-      orderBy: { createdAt: "desc" },
-    });
-    return NextResponse.json({ ok: true, rows });
-  } catch (e) {
-    return NextResponse.json({ ok: false, error: "Failed to fetch codes" }, { status: 500 });
+export async function GET(req: NextRequest) {
+  if (!isAdmin(req)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const rows = await prisma.accessCode.findMany({
+    orderBy: { createdAt: "desc" },
+  });
+
+  return NextResponse.json({ items: rows });
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  if (!isAdmin(req)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const body = await req.json().catch(() => ({} as any));
+
+  const code = typeof body.code === "string" ? body.code.trim() : "";
+  if (!code) {
+    return NextResponse.json({ error: "Missing code" }, { status: 400 });
+  }
+
+  const schoolName =
+    typeof body.schoolName === "string" ? body.schoolName.trim() : "";
+
+  // IMPORTANT: Prisma schema expects a STRING here (not string[])
+  const allowedLevels = toCsvString(body.allowedLevels);
+
+  const status =
+    body.status === "ACTIVE" || body.status === "DISABLED"
+      ? body.status
+      : "ACTIVE";
+
   try {
-    const body = await req.json().catch(() => ({}));
-
-    const code = typeof body.code === "string" ? body.code.trim() : "";
-    const schoolName = typeof body.schoolName === "string" ? body.schoolName.trim() : "";
-    const allowedLevels = normalizeAllowedLevels(body.allowedLevels);
-    const status: Status = body.status === "DISABLED" ? "DISABLED" : "ACTIVE";
-
-    if (!code) {
-      return NextResponse.json({ ok: false, error: "Missing code" }, { status: 400 });
-    }
-
     const created = await prisma.accessCode.create({
       data: {
         code,
-        schoolName,      // ✅ never null
-        allowedLevels,   // ✅ always string
+        schoolName, // ✅ always a string (never null)
+        allowedLevels, // ✅ always a string
         status,
       },
     });
 
-    return NextResponse.json({ ok: true, created });
-  } catch (e) {
-    return NextResponse.json({ ok: false, error: "Failed to create code" }, { status: 500 });
+    return NextResponse.json({ ok: true, item: created });
+  } catch (e: any) {
+    // Unique constraint, etc.
+    return NextResponse.json(
+      { error: "Failed to create code", details: String(e?.message ?? e) },
+      { status: 400 }
+    );
   }
 }
 
-export async function DELETE(req: Request) {
-  try {
-    const url = new URL(req.url);
-    const id = url.searchParams.get("id");
-
-    if (!id) {
-      return NextResponse.json({ ok: false, error: "Missing id" }, { status: 400 });
-    }
-
-    const updated = await prisma.accessCode.update({
-      where: { id },
-      data: { status: "DISABLED" },
-    });
-
-    return NextResponse.json({ ok: true, updated });
-  } catch (e) {
-    return NextResponse.json({ ok: false, error: "Failed to disable code" }, { status: 500 });
+export async function DELETE(req: NextRequest) {
+  if (!isAdmin(req)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const id = req.nextUrl.searchParams.get("id");
+  if (!id) {
+    return NextResponse.json({ error: "Missing id" }, { status: 400 });
+  }
+
+  await prisma.accessCode.update({
+    where: { id },
+    data: { status: "DISABLED" },
+  });
+
+  return NextResponse.json({ ok: true });
 }
